@@ -4,6 +4,9 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Enable CORS for Monitor UI
+  app.enableCors();
+
   const port = process.env.MONITOR_PORT || 3002;
   await app.listen(port);
 
