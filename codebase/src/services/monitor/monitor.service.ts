@@ -217,14 +217,17 @@ export class MonitorService implements OnModuleInit, OnModuleDestroy {
 
   async getQueueMetrics() {
     try {
-      const counts = await this.jobsQueue.getJobCounts('waiting', 'active', 'completed', 'failed');
+      // Query BullMQ Redis for current queue state
+      // - waiting: Jobs in queue, not yet picked up by a worker
+      // - active: Jobs currently being processed by workers (still in BullMQ until completion)
+      // NOTE: We don't track completed/failed here as they're ephemeral Redis entries
+      //       For historical completed/failed counts, use getJobMetrics() which queries the DB
+      const counts = await this.jobsQueue.getJobCounts('waiting', 'active');
 
       return {
-        queue_depth: counts.waiting + counts.active,
-        queue_waiting: counts.waiting,
-        queue_active: counts.active,
-        queue_completed: counts.completed,
-        queue_failed: counts.failed,
+        queue_depth: counts.waiting + counts.active, // Total jobs in flight
+        queue_waiting: counts.waiting,                // Jobs waiting for a worker
+        queue_active: counts.active,                  // Jobs currently being processed
       };
     } catch (error) {
       this.logger.error(`Failed to get queue metrics: ${error.message}`);
@@ -232,8 +235,6 @@ export class MonitorService implements OnModuleInit, OnModuleDestroy {
         queue_depth: 0,
         queue_waiting: 0,
         queue_active: 0,
-        queue_completed: 0,
-        queue_failed: 0,
       };
     }
   }

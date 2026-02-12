@@ -72,3 +72,22 @@ wait_for_status() {
 
     return 1
 }
+
+# Submit a test job and return the job ID
+submit_job() {
+    local execution_time=${1:-1000}
+    local failure_prob=${2:-0}
+
+    local response=$(curl -s -X POST "$API_URL/jobs" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"class\": \"test\",
+            \"type\": \"delay\",
+            \"payload\": {
+                \"executionTime\": $execution_time,
+                \"failureProb\": $failure_prob
+            }
+        }")
+
+    echo $response | jq -r '.jobId'
+}

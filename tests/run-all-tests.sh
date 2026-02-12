@@ -72,6 +72,7 @@ fi
 wait_for_service "$API_URL/health" "API Server"
 
 # Run all tests
+run_test "$(dirname "$0")/test-00-health.sh"
 run_test "$(dirname "$0")/test-01-happy-path.sh"
 run_test "$(dirname "$0")/test-02-retry-logic.sh"
 run_test "$(dirname "$0")/test-03-cancel-pending.sh"
@@ -95,6 +96,7 @@ else
 fi
 
 run_test "$(dirname "$0")/test-08-health-endpoints.sh"
+run_test "$(dirname "$0")/test-09-monitoring-stats.sh"
 
 echo ""
 echo -e "${BLUE}================================${NC}"
