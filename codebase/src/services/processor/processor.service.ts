@@ -6,6 +6,7 @@ import { JobsService } from '../jobs/jobs.service';
 @Injectable()
 export class ProcessorService {
   private readonly logger = new Logger(ProcessorService.name);
+  private readonly hfMode = process.env.HF_MODE === 'true';
 
   constructor(
     private readonly jobsService: JobsService,
@@ -13,7 +14,9 @@ export class ProcessorService {
   ) {}
 
   async processJob(jobId: string, jobClass: string, jobType: string, payload: any): Promise<any> {
-    this.logger.log(`Processing job ${jobId} [${jobClass}/${jobType}]`);
+    if (!this.hfMode) {
+      this.logger.log(`Processing job ${jobId} [${jobClass}/${jobType}]`);
+    }
 
     // Claim the job (atomic update to PROCESSING)
     const claimed = await this.jobsService.claimJob(jobId);
@@ -41,7 +44,9 @@ export class ProcessorService {
       const completed = await this.jobsService.completeJob(jobId, result);
 
       if (completed) {
-        this.logger.log(`Job ${jobId} completed successfully`);
+        if (!this.hfMode) {
+          this.logger.log(`Job ${jobId} completed successfully`);
+        }
       } else {
         this.logger.warn(`Job ${jobId} was cancelled during processing`);
       }
@@ -72,9 +77,11 @@ export class ProcessorService {
           const backoffBase = this.configService.get<number>('jobs.exponentialBackoffBase', 2);
           const delayMs = Math.pow(backoffBase, job.attempts) * 1000;
 
-          this.logger.log(
-            `Job ${jobId} will retry (attempt ${job.attempts}/${job.maxAttempts}) after ${delayMs}ms`,
-          );
+          if (!this.hfMode) {
+            this.logger.log(
+              `Job ${jobId} will retry (attempt ${job.attempts}/${job.maxAttempts}) after ${delayMs}ms`,
+            );
+          }
 
           // Wait for exponential backoff
           await this.sleep(delayMs);
@@ -117,7 +124,9 @@ export class ProcessorService {
     const executionTime = payload.executionTime || 1000;
     const failureProb = payload.failureProb || 0;
 
-    this.logger.log(`Executing delay job: ${executionTime}ms, failure prob: ${failureProb}`);
+    if (!this.hfMode) {
+      this.logger.log(`Executing delay job: ${executionTime}ms, failure prob: ${failureProb}`);
+    }
 
     // Simulate work
     await this.sleep(executionTime);

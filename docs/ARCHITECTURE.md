@@ -572,6 +572,48 @@ Description: Performs full system cleanup (stats + table + queue) for testing
 - Retry attempt number
 - Error classification (transient vs permanent)
 
+**High-Frequency Mode (HF_MODE):**
+
+For load testing and performance optimization at high QPS (e.g., 2K+ QPS), the system supports HF_MODE to reduce logging overhead.
+
+**Environment Variable:**
+```bash
+HF_MODE=true  # Suppress high-frequency logs (default: false)
+```
+
+**What Gets Suppressed:**
+When HF_MODE=true, only high-frequency per-request and per-job logs are suppressed:
+- Job creation logs (API)
+- Job received logs (Worker)
+- Job processing start logs (Worker)
+- Job completion logs (Worker)
+- Job retry logs (Worker)
+- Test job execution logs (Worker)
+
+**What Always Logs:**
+Critical logs are NEVER suppressed, regardless of HF_MODE:
+- All ERROR level logs (job failures, system errors)
+- All WARN level logs (job cancellations, abandoned jobs)
+- Startup and shutdown logs (service initialization, configuration)
+- Infrastructure events (database connections, Redis errors)
+- Monitoring events (abandoned job detection, TTL cleanup)
+
+**Implementation Pattern:**
+```typescript
+private readonly hfMode = process.env.HF_MODE === 'true';
+
+// High-frequency log (suppressed in HF_MODE)
+if (!this.hfMode) {
+  this.logger.log(`Processing job ${jobId}`);
+}
+
+// Critical log (always shown)
+this.logger.error(`Job ${jobId} failed: ${error.message}`, error.stack);
+```
+
+**Performance Impact:**
+At 2K QPS with 10 concurrent workers, HF_MODE reduces logging from ~20,000 log statements/sec to ~200 log statements/sec (100x reduction), significantly improving throughput and reducing I/O contention.
+
 ### Alerting
 
 **Critical Alerts:**

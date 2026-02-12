@@ -15,4 +15,7 @@ export default registerAs('app', () => ({
 
   // Monitor configuration
   monitorWorkerStatsQueryPeriodSeconds: parseInt(process.env.MONITOR_WORKER_STATS_QUERY_PERIOD_SECONDS, 10) || 10,
+
+  // Performance / Testing
+  hfMode: process.env.HF_MODE === 'true',
 }));

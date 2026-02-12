@@ -10,6 +10,7 @@ import { CreateJobDto, JobResponseDto, CreateBulkJobsDto, BulkJobsResponseDto } 
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
+  private readonly hfMode = process.env.HF_MODE === 'true';
 
   constructor(
     @InjectRepository(Job)
@@ -45,7 +46,9 @@ export class JobsService {
       },
     );
 
-    this.logger.log(`Job created and enqueued: ${savedJob.id}`);
+    if (!this.hfMode) {
+      this.logger.log(`Job created and enqueued: ${savedJob.id}`);
+    }
 
     return this.toResponseDto(savedJob);
   }
@@ -86,7 +89,9 @@ export class JobsService {
 
     const jobIds = savedJobs.map(job => job.id);
 
-    this.logger.log(`Bulk created and enqueued ${jobIds.length} jobs`);
+    if (!this.hfMode) {
+      this.logger.log(`Bulk created and enqueued ${jobIds.length} jobs`);
+    }
 
     return {
       jobIds,

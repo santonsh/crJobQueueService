@@ -10,6 +10,7 @@ import { WorkerStatsService } from '../worker-stats/worker-stats.service';
 })
 export class JobsProcessor extends WorkerHost {
   private readonly logger = new Logger(JobsProcessor.name);
+  private readonly hfMode = process.env.HF_MODE === 'true';
 
   constructor(
     private readonly processorService: ProcessorService,
@@ -24,7 +25,9 @@ export class JobsProcessor extends WorkerHost {
   async process(job: Job): Promise<any> {
     const { jobId, class: jobClass, type: jobType, payload } = job.data;
 
-    this.logger.log(`BullMQ job received: ${jobId}`);
+    if (!this.hfMode) {
+      this.logger.log(`BullMQ job received: ${jobId}`);
+    }
 
     // Track active job
     this.workerStatsService.incrementActiveJobs();

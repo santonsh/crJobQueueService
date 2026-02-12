@@ -199,6 +199,7 @@ Environment variables (see `.env.example`):
 | `MONITOR_CRON_SCHEDULE` | Abandoned job check schedule | `*/2 * * * *` |
 | `MAX_RETRY_ATTEMPTS` | Max retry attempts for failed jobs | `3` |
 | `JOB_TIMEOUT_MINUTES` | Job timeout threshold | `5` |
+| `HF_MODE` | High-Frequency Mode - Suppress per-request/job logs for load testing | `false` |
 
 ## Development Workflow
 
