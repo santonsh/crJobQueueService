@@ -6,18 +6,18 @@ export class MonitorController {
   constructor(private readonly monitorService: MonitorService) {}
 
   @Get('jobs')
-  getJobMetrics() {
-    return this.monitorService.getJobMetrics();
+  async getJobMetrics() {
+    return await this.monitorService.getJobMetrics();
   }
 
   @Get('queue')
-  getQueueMetrics() {
-    return this.monitorService.getQueueMetrics();
+  async getQueueMetrics() {
+    return await this.monitorService.getQueueMetrics();
   }
 
   @Get('workers')
-  getWorkerMetrics() {
-    return this.monitorService.getWorkerMetrics();
+  async getWorkerMetrics() {
+    return await this.monitorService.getWorkerMetrics();
   }
 
   @Get('system')

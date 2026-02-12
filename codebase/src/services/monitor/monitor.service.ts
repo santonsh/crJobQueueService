@@ -1,20 +1,29 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { CronJob } from 'cron';
+import Redis from 'ioredis';
 import { JobsService } from '../jobs/jobs.service';
 
 @Injectable()
-export class MonitorService implements OnModuleInit {
+export class MonitorService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MonitorService.name);
   private abandonedJobsRecovered = 0;
   private jobsDeleted = 0;
+  private redis: Redis;
 
   constructor(
     private readonly jobsService: JobsService,
     private readonly configService: ConfigService,
     private readonly schedulerRegistry: SchedulerRegistry,
-  ) {}
+    @InjectQueue('jobs') private readonly jobsQueue: Queue,
+  ) {
+    // Create Redis client for stats reading
+    const redisConfig = this.configService.get('queue.redis');
+    this.redis = new Redis(redisConfig);
+  }
 
   onModuleInit() {
     // Register abandoned jobs recovery cron dynamically
@@ -148,31 +157,168 @@ export class MonitorService implements OnModuleInit {
     }
   }
 
-  getJobMetrics() {
-    return {
-      job_submissions_total: 0,
-      job_status_total: {},
-    };
+  async onModuleDestroy() {
+    // Close Redis connection
+    await this.redis.quit();
   }
 
-  getQueueMetrics() {
-    return {
-      queue_depth: 0,
-      queue_processing_rate: 0,
-    };
+  async getJobMetrics() {
+    try {
+      const jobsRepo = this.jobsService['jobRepository']; // Access repository from JobsService
+
+      // Total submissions
+      const total = await jobsRepo.count();
+
+      // By status
+      const statusCounts = await jobsRepo
+        .createQueryBuilder('job')
+        .select('job.status', 'status')
+        .addSelect('COUNT(*)', 'count')
+        .groupBy('job.status')
+        .getRawMany();
+
+      const job_status_total = {};
+      statusCounts.forEach(row => {
+        job_status_total[row.status] = parseInt(row.count, 10);
+      });
+
+      // By class and status
+      const classCounts = await jobsRepo
+        .createQueryBuilder('job')
+        .select('job.class', 'class')
+        .addSelect('job.status', 'status')
+        .addSelect('COUNT(*)', 'count')
+        .groupBy('job.class')
+        .addGroupBy('job.status')
+        .getRawMany();
+
+      const job_status_by_class = {};
+      classCounts.forEach(row => {
+        if (!job_status_by_class[row.class]) {
+          job_status_by_class[row.class] = {};
+        }
+        job_status_by_class[row.class][row.status] = parseInt(row.count, 10);
+      });
+
+      return {
+        job_submissions_total: total,
+        job_status_total,
+        job_status_by_class,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get job metrics: ${error.message}`);
+      return {
+        job_submissions_total: 0,
+        job_status_total: {},
+        job_status_by_class: {},
+      };
+    }
   }
 
-  getWorkerMetrics() {
-    return {
-      workers: [],
-    };
+  async getQueueMetrics() {
+    try {
+      const counts = await this.jobsQueue.getJobCounts('waiting', 'active', 'completed', 'failed');
+
+      return {
+        queue_depth: counts.waiting + counts.active,
+        queue_waiting: counts.waiting,
+        queue_active: counts.active,
+        queue_completed: counts.completed,
+        queue_failed: counts.failed,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get queue metrics: ${error.message}`);
+      return {
+        queue_depth: 0,
+        queue_waiting: 0,
+        queue_active: 0,
+        queue_completed: 0,
+        queue_failed: 0,
+      };
+    }
+  }
+
+  async getWorkerMetrics() {
+    try {
+      // Scan Redis for all worker stats keys
+      const keys = [];
+      let cursor = '0';
+
+      do {
+        const [newCursor, scannedKeys] = await this.redis.scan(
+          cursor,
+          'MATCH', 'worker:stats:*',
+          'COUNT', 100,
+        );
+        keys.push(...scannedKeys);
+        cursor = newCursor;
+      } while (cursor !== '0');
+
+      if (keys.length === 0) {
+        return { workers: [] };
+      }
+
+      // Get all worker stats
+      const statsStrings = await this.redis.mget(...keys);
+      const workers = statsStrings
+        .filter(s => s !== null)
+        .map(s => {
+          try {
+            return JSON.parse(s);
+          } catch {
+            return null;
+          }
+        })
+        .filter(w => w !== null);
+
+      // Aggregate by worker type
+      const aggregated = {};
+      workers.forEach(worker => {
+        const type = worker.workerType;
+        if (!aggregated[type]) {
+          aggregated[type] = {
+            count: 0,
+            totalCpu: 0,
+            totalMemory: 0,
+            totalActiveJobs: 0,
+          };
+        }
+        aggregated[type].count += 1;
+        aggregated[type].totalCpu += worker.worker_cpu_usage || 0;
+        aggregated[type].totalMemory += worker.worker_memory_usage || 0;
+        aggregated[type].totalActiveJobs += worker.worker_active_jobs || 0;
+      });
+
+      const last_sample_period_workers_running = {};
+      const last_sample_period_avg_cpu_utilization = {};
+      const last_sample_period_avg_memory_utilization = {};
+      const last_sample_period_total_jobs_in_processing = {};
+
+      Object.keys(aggregated).forEach(type => {
+        const agg = aggregated[type];
+        last_sample_period_workers_running[type] = agg.count;
+        last_sample_period_avg_cpu_utilization[type] = Math.round((agg.totalCpu / agg.count) * 100) / 100;
+        last_sample_period_avg_memory_utilization[type] = Math.round((agg.totalMemory / agg.count) * 100) / 100;
+        last_sample_period_total_jobs_in_processing[type] = agg.totalActiveJobs;
+      });
+
+      return {
+        last_sample_period_workers_running,
+        last_sample_period_avg_cpu_utilization,
+        last_sample_period_avg_memory_utilization,
+        last_sample_period_total_jobs_in_processing,
+        workers,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get worker metrics: ${error.message}`);
+      return { workers: [] };
+    }
   }
 
   getSystemMetrics() {
     return {
       abandoned_jobs_recovered_total: this.abandonedJobsRecovered,
-      database_connection_pool_size: 0,
-      redis_connection_errors_total: 0,
+      jobs_deleted_total: this.jobsDeleted,
     };
   }
 }
