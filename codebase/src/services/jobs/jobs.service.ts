@@ -5,7 +5,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Job } from '@/common/entities';
 import { JobStatus } from '@/common/enums';
-import { CreateJobDto, JobResponseDto } from '@/common/dtos';
+import { CreateJobDto, JobResponseDto, CreateBulkJobsDto, BulkJobsResponseDto } from '@/common/dtos';
 
 @Injectable()
 export class JobsService {
@@ -48,6 +48,51 @@ export class JobsService {
     this.logger.log(`Job created and enqueued: ${savedJob.id}`);
 
     return this.toResponseDto(savedJob);
+  }
+
+  async createBulkJobs(createBulkJobsDto: CreateBulkJobsDto): Promise<BulkJobsResponseDto> {
+    const createdAt = new Date();
+
+    // Create all jobs in database in a single transaction
+    const jobs = createBulkJobsDto.jobs.map(jobDto =>
+      this.jobRepository.create({
+        class: jobDto.class,
+        type: jobDto.type,
+        payload: jobDto.payload,
+        status: JobStatus.PENDING,
+      })
+    );
+
+    const savedJobs = await this.jobRepository.save(jobs);
+
+    // Prepare bulk BullMQ job data
+    const bullJobs = savedJobs.map(job => ({
+      name: 'process-job',
+      data: {
+        jobId: job.id,
+        class: job.class,
+        type: job.type,
+        payload: job.payload,
+      },
+      opts: {
+        jobId: job.id,
+        removeOnComplete: true,
+        removeOnFail: false,
+      },
+    }));
+
+    // Add all jobs to BullMQ in bulk (more efficient than individual adds)
+    await this.jobQueue.addBulk(bullJobs);
+
+    const jobIds = savedJobs.map(job => job.id);
+
+    this.logger.log(`Bulk created and enqueued ${jobIds.length} jobs`);
+
+    return {
+      jobIds,
+      count: jobIds.length,
+      createdAt,
+    };
   }
 
   async findById(id: string): Promise<JobResponseDto> {

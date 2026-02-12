@@ -9,7 +9,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { JobsService } from './jobs.service';
-import { CreateJobDto, JobResponseDto } from '@/common/dtos';
+import { CreateJobDto, JobResponseDto, CreateBulkJobsDto, BulkJobsResponseDto } from '@/common/dtos';
 
 @Controller('jobs')
 export class JobsController {
@@ -19,6 +19,12 @@ export class JobsController {
   @HttpCode(HttpStatus.CREATED)
   async createJob(@Body() createJobDto: CreateJobDto): Promise<JobResponseDto> {
     return this.jobsService.createJob(createJobDto);
+  }
+
+  @Post('bulk')
+  @HttpCode(HttpStatus.CREATED)
+  async createBulkJobs(@Body() createBulkJobsDto: CreateBulkJobsDto): Promise<BulkJobsResponseDto> {
+    return this.jobsService.createBulkJobs(createBulkJobsDto);
   }
 
   @Get(':id')

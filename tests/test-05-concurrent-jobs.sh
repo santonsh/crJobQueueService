@@ -83,11 +83,9 @@ if [ $COMPLETED_COUNT -eq 10 ]; then
         pass "Jobs processed concurrently (max duration ≤ 5s)"
         info "  Expected for parallel: ~2-3s"
         info "  Expected for sequential: ~20s"
-        exit 0
     elif [ $MAX_DURATION -le 10 ]; then
         warn "Jobs mostly concurrent but slower than expected (${MAX_DURATION}s)"
         info "  This might indicate some queueing or resource contention"
-        exit 0
     else
         fail "Jobs may be running sequentially" "Max duration: ${MAX_DURATION}s (expected ~2-3s for parallel)"
         exit 1
@@ -96,3 +94,66 @@ else
     fail "Not all concurrent jobs completed" "Completed: $COMPLETED_COUNT/10"
     exit 1
 fi
+
+echo ""
+echo -e "${BLUE}=== Test 5b: Bulk Job Submission ===${NC}"
+info "Testing POST /jobs/bulk endpoint..."
+
+# Create JSON payload with 100 jobs
+BULK_START_TIME=$(date +%s)
+
+BULK_RESPONSE=$(curl -s -X POST "$API_URL/jobs/bulk" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jobs": [
+      {"class": "test", "type": "delay", "payload": {"executionTime": 100, "failureProb": 0}},
+      {"class": "test", "type": "delay", "payload": {"executionTime": 100, "failureProb": 0}},
+      {"class": "test", "type": "delay", "payload": {"executionTime": 100, "failureProb": 0}},
+      {"class": "test", "type": "delay", "payload": {"executionTime": 100, "failureProb": 0}},
+      {"class": "test", "type": "delay", "payload": {"executionTime": 100, "failureProb": 0}},
+      {"class": "test", "type": "delay", "payload": {"executionTime": 100, "failureProb": 0}},
+      {"class": "test", "type": "delay", "payload": {"executionTime": 100, "failureProb": 0}},
+      {"class": "test", "type": "delay", "payload": {"executionTime": 100, "failureProb": 0}},
+      {"class": "test", "type": "delay", "payload": {"executionTime": 100, "failureProb": 0}},
+      {"class": "test", "type": "delay", "payload": {"executionTime": 100, "failureProb": 0}}
+    ]
+  }')
+
+BULK_SUBMIT_TIME=$(date +%s)
+BULK_SUBMIT_DURATION=$((BULK_SUBMIT_TIME - BULK_START_TIME))
+
+# Parse response
+BULK_COUNT=$(echo $BULK_RESPONSE | jq -r '.count')
+BULK_JOB_IDS=$(echo $BULK_RESPONSE | jq -r '.jobIds[]')
+
+if [ "$BULK_COUNT" = "10" ]; then
+    pass "Bulk job submission successful: $BULK_COUNT jobs created in ${BULK_SUBMIT_DURATION}s"
+    info "  Job IDs returned: $(echo $BULK_RESPONSE | jq -r '.jobIds | length') items"
+
+    # Wait for jobs to complete
+    info "Waiting for bulk jobs to complete..."
+    sleep 3
+
+    # Verify all jobs were created and processed
+    BULK_COMPLETED=0
+    for JOB_ID in $BULK_JOB_IDS; do
+        STATUS=$(curl -s "$API_URL/jobs/$JOB_ID" | jq -r '.status')
+        if [ "$STATUS" = "COMPLETED" ]; then
+            BULK_COMPLETED=$((BULK_COMPLETED + 1))
+        fi
+    done
+
+    if [ $BULK_COMPLETED -eq 10 ]; then
+        pass "All $BULK_COMPLETED bulk jobs completed successfully"
+    else
+        warn "Only $BULK_COMPLETED out of 10 bulk jobs completed"
+    fi
+else
+    fail "Bulk job submission failed" "Expected count: 10, got: $BULK_COUNT"
+    echo "  Response: $BULK_RESPONSE"
+    exit 1
+fi
+
+echo ""
+pass "Test 5: Concurrent and Bulk Jobs Test PASSED"
+exit 0
