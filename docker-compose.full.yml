@@ -1,0 +1,243 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: jobs-postgres
+    environment:
+      POSTGRES_USER: jobsuser
+      POSTGRES_PASSWORD: jobspass
+      POSTGRES_DB: jobsdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobsuser -d jobsdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jobs-network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: jobs-redis
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jobs-network
+
+  # API Server
+  api:
+    build:
+      context: ./codebase
+      dockerfile: Dockerfile
+    container_name: jobs-api
+    command: ["node", "dist/apps/api/main.js"]
+    ports:
+      - "3010:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://jobsuser:jobspass@postgres:5432/jobsdb
+      REDIS_URL: redis://redis:6379
+      API_PORT: 3000
+      HF_MODE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - jobs-network
+    restart: unless-stopped
+
+  # Monitor Service
+  monitor:
+    build:
+      context: ./codebase
+      dockerfile: Dockerfile
+    container_name: jobs-monitor
+    command: ["node", "dist/apps/monitor/main.js"]
+    ports:
+      - "3012:3002"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://jobsuser:jobspass@postgres:5432/jobsdb
+      REDIS_URL: redis://redis:6379
+      MONITOR_PORT: 3002
+      MONITOR_CRON_SCHEDULE: "*/2 * * * *"
+      MAX_QUEUE_WAIT_MINUTES: 30
+      JOB_TTL_DAYS_COMPLETED: 7
+      JOB_TTL_DAYS_FAILED: 30
+      JOB_TTL_DAYS_CANCELLED: 7
+      JOB_TIMEOUT_MINUTES: 5
+      MONITOR_WORKER_STATS_QUERY_PERIOD_SECONDS: 10
+      HF_MODE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - jobs-network
+    restart: unless-stopped
+
+  # Worker 1
+  worker-1:
+    build:
+      context: ./codebase
+      dockerfile: Dockerfile
+    container_name: jobs-worker-1
+    command: ["node", "dist/apps/worker/main.js"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://jobsuser:jobspass@postgres:5432/jobsdb
+      REDIS_URL: redis://redis:6379
+      WORKER_ID: worker-1
+      WORKER_CONCURRENCY: 50
+      WORKER_STATS_PORT: 3001
+      WORKER_STATS_REPORTING_PERIOD_SECONDS: 5
+      WORKER_STATS_REDIS_TTL_SECONDS: 300
+      MAX_RETRY_ATTEMPTS: 3
+      EXPONENTIAL_BACKOFF_BASE: 2
+      JOB_TIMEOUT_MINUTES: 5
+      HF_MODE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - jobs-network
+    restart: unless-stopped
+
+  # Worker 2
+  worker-2:
+    build:
+      context: ./codebase
+      dockerfile: Dockerfile
+    container_name: jobs-worker-2
+    command: ["node", "dist/apps/worker/main.js"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://jobsuser:jobspass@postgres:5432/jobsdb
+      REDIS_URL: redis://redis:6379
+      WORKER_ID: worker-2
+      WORKER_CONCURRENCY: 50
+      WORKER_STATS_PORT: 3001
+      WORKER_STATS_REPORTING_PERIOD_SECONDS: 5
+      WORKER_STATS_REDIS_TTL_SECONDS: 300
+      MAX_RETRY_ATTEMPTS: 3
+      EXPONENTIAL_BACKOFF_BASE: 2
+      JOB_TIMEOUT_MINUTES: 5
+      HF_MODE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - jobs-network
+    restart: unless-stopped
+
+  # Worker 3
+  worker-3:
+    build:
+      context: ./codebase
+      dockerfile: Dockerfile
+    container_name: jobs-worker-3
+    command: ["node", "dist/apps/worker/main.js"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://jobsuser:jobspass@postgres:5432/jobsdb
+      REDIS_URL: redis://redis:6379
+      WORKER_ID: worker-3
+      WORKER_CONCURRENCY: 50
+      WORKER_STATS_PORT: 3001
+      WORKER_STATS_REPORTING_PERIOD_SECONDS: 5
+      WORKER_STATS_REDIS_TTL_SECONDS: 300
+      MAX_RETRY_ATTEMPTS: 3
+      EXPONENTIAL_BACKOFF_BASE: 2
+      JOB_TIMEOUT_MINUTES: 5
+      HF_MODE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - jobs-network
+    restart: unless-stopped
+
+  # Worker 4
+  worker-4:
+    build:
+      context: ./codebase
+      dockerfile: Dockerfile
+    container_name: jobs-worker-4
+    command: ["node", "dist/apps/worker/main.js"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://jobsuser:jobspass@postgres:5432/jobsdb
+      REDIS_URL: redis://redis:6379
+      WORKER_ID: worker-4
+      WORKER_CONCURRENCY: 50
+      WORKER_STATS_PORT: 3001
+      WORKER_STATS_REPORTING_PERIOD_SECONDS: 5
+      WORKER_STATS_REDIS_TTL_SECONDS: 300
+      MAX_RETRY_ATTEMPTS: 3
+      EXPONENTIAL_BACKOFF_BASE: 2
+      JOB_TIMEOUT_MINUTES: 5
+      HF_MODE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - jobs-network
+    restart: unless-stopped
+
+  # Worker 5
+  worker-5:
+    build:
+      context: ./codebase
+      dockerfile: Dockerfile
+    container_name: jobs-worker-5
+    command: ["node", "dist/apps/worker/main.js"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://jobsuser:jobspass@postgres:5432/jobsdb
+      REDIS_URL: redis://redis:6379
+      WORKER_ID: worker-5
+      WORKER_CONCURRENCY: 50
+      WORKER_STATS_PORT: 3001
+      WORKER_STATS_REPORTING_PERIOD_SECONDS: 5
+      WORKER_STATS_REDIS_TTL_SECONDS: 300
+      MAX_RETRY_ATTEMPTS: 3
+      EXPONENTIAL_BACKOFF_BASE: 2
+      JOB_TIMEOUT_MINUTES: 5
+      HF_MODE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - jobs-network
+    restart: unless-stopped
+
+networks:
+  jobs-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
