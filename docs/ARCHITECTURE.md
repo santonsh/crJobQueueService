@@ -7,7 +7,8 @@ Our architecture to support 1K-3K QPS will include:
 - Scalable NestJS workers
 - BullMQ as a queue framework (based on Redis)
 - PostgreSQL database to write and query job status
-- Cron job as a separate NestJS service to look for abandoned jobs and re-enqueue them
+- Monitor service - a separate NestJS service to look for abandoned jobs, re-enqueue them, and expose metrics
+- MonitorUI - Vue.js web application for visualizing system metrics and testing
 - Docker Compose to wrap all together
 
 We expect this setup to handle 1K QPS (this of course to be tested).
@@ -238,15 +239,22 @@ DLQ will not be implemented at this stage. Failed jobs (after maxAttempts) remai
 ### Project Structure
 
 ```
-apps/
-  ├── api/           # REST API server
-  ├── worker/        # Job processor workers
-  └── monitor/       # Abandoned job recovery, TTL cleanup, metrics/stats endpoints
+codebase/
+  apps/
+    ├── api/           # REST API server
+    ├── worker/        # Job processor workers
+    └── monitor/       # Abandoned job recovery, TTL cleanup, metrics/stats endpoints
 
-src/ (shared across apps)
-  ├── modules/
-  │   ├── common/        # Shared interfaces, DTOs, types
-  │   └── jobs/          # Job module (shared service to operate on job entities in BullMQ and PostgreSQL)
+  src/ (shared across apps)
+    ├── modules/
+    │   ├── common/        # Shared interfaces, DTOs, types
+    │   └── jobs/          # Job module (shared service to operate on job entities in BullMQ and PostgreSQL)
+
+monitorUI/              # Vue.js web application for monitoring
+  ├── src/
+  │   ├── App.vue      # Main dashboard component
+  │   └── main.js      # Application entry point
+  └── package.json     # Frontend dependencies (Vue, Vuetify, Axios)
 ```
 
 **Note:** NestJS structures shared services under `src/modules/` or `src/services/`, not under `libs/`. Each app imports these shared modules.
@@ -277,6 +285,14 @@ src/ (shared across apps)
 - Cleanup module: Job TTL cleanup (deletes old COMPLETED, FAILED, CANCELLED jobs)
 - Metrics module: Aggregates and exposes metrics endpoints (`/metrics/*`)
 - Stats aggregator: Polls worker `/stats` endpoints to collect worker metrics
+- Debug module: Testing endpoints (`/debug/run_test`) for automated system validation
+
+**MonitorUI (Vue.js Application):**
+- Dashboard: Real-time visualization of system metrics
+- Auto-refresh: Fetches metrics every 5 seconds
+- Test Runner: Integrated button to execute automated system tests via `/debug/run_test`
+- Responsive design: Built with Vue 3, Vuetify, and Axios
+- Runs independently on port 8081 (development) or can be served as static build
 
 ## Configuration
 
@@ -441,16 +457,88 @@ Jobs are categorized by class and type. Each type can override defaults:
 
 ```
 GET /metrics/jobs
-Response: Job-level metrics (submissions, completions, failures, etc.)
+Response: {
+  total_submissions: number,
+  pending: number,
+  processing: number,
+  completed: number,
+  failed: number,
+  cancelled: number
+}
 
 GET /metrics/queue
-Response: Queue depth, processing rate, age statistics
+Response: {
+  queue_depth: number,        // Total jobs in flight (waiting + active)
+  queue_waiting: number,      // Jobs waiting for a worker
+  queue_active: number        // Jobs currently being processed
+}
 
 GET /metrics/workers
-Response: Aggregated worker metrics from all worker instances
+Response: {
+  workers: [
+    {
+      active_jobs: number,
+      cpu_usage: string,       // e.g., "2.45%"
+      memory_usage: string,    // e.g., "125MB"
+      processed: number        // Total jobs processed
+    }
+  ]
+}
 
 GET /metrics/system
-Response: Database, Redis, abandoned job recovery stats
+Response: {
+  abandonedJobsRecovered: number,
+  jobsDeleted: number,
+  lastCleanupRun: timestamp
+}
+
+POST /debug/run_test
+Response: {
+  success: boolean,
+  duration?: number,          // Test duration in seconds
+  message?: string            // Error message if failed
+}
+Description: Submits 100 jobs with 5-second execution time and validates all complete within 55 seconds
+
+POST /debug/clean/stats
+Body: { confirm: boolean }
+Response: {
+  success: boolean,
+  message: string,
+  deleted?: number            // Number of keys deleted
+}
+Description: Clears worker stats from Redis and resets in-memory counters
+
+POST /debug/clean/table
+Body: { confirm: boolean }
+Response: {
+  success: boolean,
+  message: string,
+  deleted?: number
+}
+Description: Truncates the jobs table in PostgreSQL (removes all job records)
+
+POST /debug/clean/queue
+Body: { confirm: boolean }
+Response: {
+  success: boolean,
+  message: string,
+  deleted?: number            // Approximate number of jobs removed
+}
+Description: Clears all jobs from BullMQ queue (obliterates queue)
+
+POST /debug/clean/all
+Body: { confirm: boolean }
+Response: {
+  success: boolean,
+  message: string,
+  stats?: {
+    statsDeleted: number,
+    queueDeleted: number,
+    tableDeleted: number
+  }
+}
+Description: Performs full system cleanup (stats + table + queue) for testing
 ```
 
 ### Logging Strategy

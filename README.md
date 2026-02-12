@@ -76,6 +76,25 @@ npm run start:dev:worker
 npm run start:dev:monitor
 ```
 
+### 5. Start MonitorUI (Optional - Web Dashboard)
+
+From the `monitorUI` directory:
+
+```bash
+cd monitorUI
+npm install  # First time only
+npm run dev
+```
+
+This starts the Vue.js monitoring dashboard:
+- MonitorUI: http://localhost:8081
+
+The dashboard provides:
+- Real-time metrics visualization (auto-refresh every 5 seconds)
+- System health monitoring
+- Integrated test runner button
+- Worker, queue, and job statistics
+
 ## Available Scripts
 
 ### Development
@@ -117,10 +136,17 @@ npm run start:dev:monitor
 
 ### Monitor (Port 3002)
 - `GET /health` - Health check
-- `GET /metrics/jobs` - Job metrics
-- `GET /metrics/queue` - Queue metrics
-- `GET /metrics/workers` - Worker metrics
-- `GET /metrics/system` - System metrics
+- `GET /metrics/jobs` - Job metrics (total submissions, status counts)
+- `GET /metrics/queue` - Queue metrics (depth, waiting, active)
+- `GET /metrics/workers` - Worker metrics (CPU, memory, active jobs)
+- `GET /metrics/system` - System metrics (abandoned jobs, cleanup stats)
+- `POST /debug/run_test` - Automated system test (submits 100 jobs, validates completion)
+
+### MonitorUI (Port 8081)
+- Web-based dashboard for real-time monitoring
+- Auto-refreshes metrics every 5 seconds
+- Integrated test runner with visual feedback
+- Responsive design with Vuetify components
 
 ## Project Structure
 
@@ -134,21 +160,28 @@ codebase/
   │   ├── services/          # Business logic modules (shared across apps)
   │   │   ├── health/        # Health check service
   │   │   ├── worker-stats/  # Worker statistics service
-  │   │   └── monitor/       # Monitoring, cron jobs, metrics
-  │   ├── config/            # Configuration files (TODO Phase 2)
-  │   └── common/            # Shared DTOs, interfaces, entities (TODO Phase 2)
+  │   │   ├── monitor/       # Monitoring, cron jobs, metrics
+  │   │   └── jobs/          # Job management service
+  │   ├── config/            # Configuration files
+  │   └── common/            # Shared DTOs, interfaces, entities
   └── package.json
 
-docker-compose.yml     # PostgreSQL and Redis containers
-ARCHITECTURE.md        # System design document
-TODO.md               # Future enhancements
-README.md            # This file
+monitorUI/              # Vue.js monitoring dashboard
+  ├── src/
+  │   ├── App.vue       # Main dashboard component
+  │   └── main.js       # Application entry point
+  └── package.json
+
+tests/                  # Integration test scripts
+docker-compose.yml      # PostgreSQL and Redis containers
+ARCHITECTURE.md         # System design document
+README.md              # This file
 ```
 
 **Structure Benefits:**
 - Apps are thin entry points, business logic lives in `/services`
 - Services can be imported by any app (better code reuse)
-- Clear separation of concerns
+- Clear separation of concerns between backend (NestJS) and frontend (Vue)
 - Follows NestJS best practices
 
 ## Configuration

@@ -132,6 +132,25 @@ The system is ~60% complete with solid foundations. Remaining work focuses on co
 - ☐ Show test execution status and results
 - ☐ Display test history
 
+### 4.4 Debug Cleanup Endpoints
+- ☐ Add debug cleanup endpoints to monitor service for testing/debugging:
+  - `POST /debug/clean/stats` - Clear worker stats from Redis
+    - Delete all `worker:stats:*` keys
+    - Reset in-memory counters (abandonedJobsRecovered, jobsDeleted)
+  - `POST /debug/clean/table` - Truncate jobs table in PostgreSQL
+    - Delete all job records from database
+    - Reset sequences if applicable
+  - `POST /debug/clean/queue` - Clear all jobs from BullMQ queue
+    - Remove all jobs from waiting, active, delayed states
+    - Clear completed and failed job lists
+  - `POST /debug/clean/all` - Execute all cleanup operations above
+    - Comprehensive system reset for testing
+- ☐ Add safety confirmation parameter (e.g., `confirm: true`)
+- ☐ Document these endpoints in ARCHITECTURE.md
+- ☐ Add warning logs when cleanup endpoints are called
+
+**Purpose**: Enable quick system reset between test runs without restarting services
+
 ---
 
 ## Step 5: Docker Compose for Full Deployment

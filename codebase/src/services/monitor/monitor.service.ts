@@ -322,4 +322,13 @@ export class MonitorService implements OnModuleInit, OnModuleDestroy {
       jobs_deleted_total: this.jobsDeleted,
     };
   }
+
+  /**
+   * Reset in-memory counters (used by debug cleanup endpoints)
+   */
+  resetCounters() {
+    this.logger.log('Resetting in-memory counters');
+    this.abandonedJobsRecovered = 0;
+    this.jobsDeleted = 0;
+  }
 }
