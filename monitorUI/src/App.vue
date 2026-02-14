@@ -6,6 +6,17 @@
         Jobs Service Monitor
       </v-app-bar-title>
       <v-spacer></v-spacer>
+      <v-select
+        v-model="environment"
+        :items="environments"
+        item-title="label"
+        item-value="value"
+        density="compact"
+        variant="solo"
+        hide-details
+        class="mr-2"
+        style="max-width: 150px"
+      ></v-select>
       <v-chip :color="isConnected ? 'success' : 'error'" variant="flat">
         <v-icon start>{{ isConnected ? 'mdi-check-circle' : 'mdi-alert-circle' }}</v-icon>
         {{ isConnected ? 'Connected' : 'Disconnected' }}
@@ -243,10 +254,28 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import axios from 'axios'
 
-const API_URL = import.meta.env.VITE_MONITOR_API_URL || 'http://localhost:3002'
+// Environment selection
+const environments = [
+  { label: 'Local (3002)', value: 'local' },
+  { label: 'Docker (3012)', value: 'docker' }
+]
+
+const environment = ref(localStorage.getItem('monitor-env') || 'local')
+
+const API_URL = computed(() => {
+  const port = environment.value === 'docker' ? 3012 : 3002
+  return `http://localhost:${port}`
+})
+
+// Watch environment changes and persist to localStorage
+watch(environment, (newEnv) => {
+  localStorage.setItem('monitor-env', newEnv)
+  // Fetch metrics immediately when environment changes
+  fetchAllMetrics()
+})
 
 const loading = ref(false)
 const isConnected = ref(false)
@@ -302,7 +331,7 @@ const formatTimestamp = (timestamp) => {
 
 const fetchMetrics = async (endpoint, target) => {
   try {
-    const response = await axios.get(`${API_URL}${endpoint}`)
+    const response = await axios.get(`${API_URL.value}${endpoint}`)
     target.value = response.data
     isConnected.value = true
   } catch (error) {
@@ -333,7 +362,7 @@ const runTest = async () => {
   testDuration.value = null
 
   try {
-    const response = await axios.post(`${API_URL}/debug/run_test`)
+    const response = await axios.post(`${API_URL.value}/debug/run_test`)
     const result = response.data
 
     testSuccess.value = result.success

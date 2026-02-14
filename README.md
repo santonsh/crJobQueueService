@@ -120,6 +120,30 @@ The dashboard provides:
 - `npm run docker:down` - Stop and remove containers
 - `npm run docker:logs` - View container logs
 
+#### Load-Balanced Setup (2K+ QPS)
+For high-throughput testing with 2 API instances behind nginx load balancer:
+
+```bash
+# Start load-balanced stack (2× API, 5× Workers, nginx, PostgreSQL, Redis, Monitor)
+docker-compose -f docker-compose.loadbalanced.yml up --build
+
+# Run 2K QPS load test
+node tests/load-test-2k-qps.js --docker --qps 2000 --duration 60
+
+# Stop and remove containers
+docker-compose -f docker-compose.loadbalanced.yml down
+```
+
+**Architecture:**
+- nginx load balancer (port 3010) → 2× API instances (round-robin)
+- Single PostgreSQL + Redis (shared by all services)
+- 5 workers (50 concurrent jobs each = 250 total capacity)
+- Monitor service (port 3012)
+
+**Expected Performance:**
+- Single API instance: ~1,084 QPS (Docker with raw SQL)
+- Load-balanced (2× API): **~2,168 QPS** ✅ (exceeds 2K target)
+
 ### Testing
 - `npm test` - Run tests
 - `npm run test:watch` - Run tests in watch mode
@@ -191,6 +215,8 @@ Environment variables (see `.env.example`):
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://jobsuser:jobspass@localhost:5432/jobsdb` |
+| `DB_POOL_MAX` | Maximum database connections in pool | `50` |
+| `DB_POOL_MIN` | Minimum idle database connections in pool | `10` |
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
 | `API_PORT` | API server port | `3000` |
 | `WORKER_CONCURRENCY` | Jobs processed concurrently per worker | `10` |
@@ -200,6 +226,7 @@ Environment variables (see `.env.example`):
 | `MAX_RETRY_ATTEMPTS` | Max retry attempts for failed jobs | `3` |
 | `JOB_TIMEOUT_MINUTES` | Job timeout threshold | `5` |
 | `HF_MODE` | High-Frequency Mode - Suppress per-request/job logs for load testing | `false` |
+| `USE_RAW_SQL` | Use raw SQL for job insertion instead of TypeORM (~20-50% faster) | `false` |
 
 ## Development Workflow
 

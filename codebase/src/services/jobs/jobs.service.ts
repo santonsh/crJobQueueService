@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Job } from '@/common/entities';
@@ -11,24 +11,50 @@ import { CreateJobDto, JobResponseDto, CreateBulkJobsDto, BulkJobsResponseDto } 
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
   private readonly hfMode = process.env.HF_MODE === 'true';
+  private readonly useRawSql = process.env.USE_RAW_SQL === 'true';
 
   constructor(
     @InjectRepository(Job)
     private readonly jobRepository: Repository<Job>,
     @InjectQueue('jobs')
     private readonly jobQueue: Queue,
-  ) {}
+    private readonly dataSource: DataSource,
+  ) {
+    if (this.useRawSql) {
+      this.logger.log('⚡ Using raw SQL for job insertion (performance mode)');
+    }
+  }
 
   async createJob(createJobDto: CreateJobDto): Promise<JobResponseDto> {
-    // Create job in database
-    const job = this.jobRepository.create({
-      class: createJobDto.class,
-      type: createJobDto.type,
-      payload: createJobDto.payload,
-      status: JobStatus.PENDING,
-    });
+    let savedJob: Job;
 
-    const savedJob = await this.jobRepository.save(job);
+    if (this.useRawSql) {
+      // Raw SQL insertion (bypasses TypeORM overhead)
+      const result = await this.dataSource.query(
+        `INSERT INTO jobs (class, type, payload, status, attempts, "maxAttempts", "createdAt")
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())
+         RETURNING id, class, type, payload, status, attempts, "maxAttempts", "createdAt",
+                   "processingStartedAt", "finishedAt", "cancelledAt", result, error, metadata`,
+        [
+          createJobDto.class,
+          createJobDto.type,
+          JSON.stringify(createJobDto.payload),
+          JobStatus.PENDING,
+          0,
+          3,
+        ]
+      );
+      savedJob = result[0];
+    } else {
+      // TypeORM insertion (original path)
+      const job = this.jobRepository.create({
+        class: createJobDto.class,
+        type: createJobDto.type,
+        payload: createJobDto.payload,
+        status: JobStatus.PENDING,
+      });
+      savedJob = await this.jobRepository.save(job);
+    }
 
     // Add to BullMQ queue
     await this.jobQueue.add(

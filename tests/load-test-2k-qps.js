@@ -28,6 +28,7 @@
  *   --concurrency <num>   Number of concurrent workers (default: 50)
  *   --warmup <seconds>    Warmup period before test (default: 5)
  *   --docker              Use Docker Compose ports (API: 3010, Monitor: 3012)
+ *   --api-layer           Test API layer only (GET /health) without database writes
  */
 
 const http = require('http');
@@ -41,8 +42,9 @@ const getArg = (name, defaultValue) => {
 };
 const hasFlag = (name) => args.indexOf(name) !== -1;
 
-// Check if --docker flag is present
+// Check flags
 const isDockerMode = hasFlag('--docker');
+const isApiLayerTest = hasFlag('--api-layer');
 
 // Test configuration
 const CONFIG = {
@@ -55,6 +57,7 @@ const CONFIG = {
   jobExecutionTimeMs: getArg('--execution-time', 100),
   concurrentWorkers: getArg('--concurrency', 50),
   warmupSeconds: getArg('--warmup', 5),
+  apiLayerTest: isApiLayerTest,
 };
 
 // Metrics tracking
@@ -78,6 +81,60 @@ const metrics = {
 // Initial metrics snapshot
 let initialMetrics = null;
 let finalMetrics = null;
+
+/**
+ * Make HTTP request to health endpoint (API layer test only)
+ */
+function testHealthEndpoint() {
+  return new Promise((resolve, reject) => {
+    const startTime = performance.now();
+
+    const options = {
+      hostname: CONFIG.apiUrl,
+      port: CONFIG.apiPort,
+      path: '/health',
+      method: 'GET',
+    };
+
+    const req = http.request(options, (res) => {
+      let data = '';
+
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+
+      res.on('end', () => {
+        const endTime = performance.now();
+        const latency = endTime - startTime;
+
+        metrics.requestsCompleted++;
+        metrics.responseTimeMs.push(latency);
+
+        // Update latency buckets
+        if (latency < 10) metrics.latencyBuckets['0-10ms']++;
+        else if (latency < 50) metrics.latencyBuckets['10-50ms']++;
+        else if (latency < 100) metrics.latencyBuckets['50-100ms']++;
+        else if (latency < 200) metrics.latencyBuckets['100-200ms']++;
+        else if (latency < 500) metrics.latencyBuckets['200-500ms']++;
+        else metrics.latencyBuckets['500ms+']++;
+
+        if (res.statusCode === 200) {
+          resolve({ success: true, latency });
+        } else {
+          metrics.requestsFailed++;
+          reject(new Error(`HTTP ${res.statusCode}: ${data}`));
+        }
+      });
+    });
+
+    req.on('error', (error) => {
+      metrics.requestsFailed++;
+      reject(error);
+    });
+
+    req.end();
+  });
+}
 
 /**
  * Make HTTP request to submit a job
@@ -202,13 +259,14 @@ function percentile(arr, p) {
  */
 async function loadTestWorker(workerId, stopSignal) {
   const intervalMs = (1000 / CONFIG.targetQps) * CONFIG.concurrentWorkers;
+  const requestFunc = CONFIG.apiLayerTest ? testHealthEndpoint : submitJob;
 
   while (!stopSignal.stop) {
     try {
       metrics.requestsSent++;
-      await submitJob();
+      await requestFunc();
     } catch (error) {
-      // Error already counted in submitJob
+      // Error already counted in request function
     }
 
     // Rate limiting
@@ -235,23 +293,28 @@ async function runLoadTest() {
   console.log('='.repeat(80));
   console.log(`Configuration:`);
   console.log(`  Mode:                 ${isDockerMode ? 'Docker Compose' : 'Development'}`);
+  console.log(`  Test Type:            ${CONFIG.apiLayerTest ? 'API Layer Only (GET /health)' : 'Full Stack (POST /jobs)'}`);
   console.log(`  API URL:              http://${CONFIG.apiUrl}:${CONFIG.apiPort}`);
   console.log(`  Monitor URL:          http://${CONFIG.monitorUrl}:${CONFIG.monitorPort}`);
   console.log(`  Target QPS:           ${CONFIG.targetQps}`);
   console.log(`  Duration:             ${CONFIG.durationSeconds}s`);
-  console.log(`  Job Execution Time:   ${CONFIG.jobExecutionTimeMs}ms`);
+  if (!CONFIG.apiLayerTest) {
+    console.log(`  Job Execution Time:   ${CONFIG.jobExecutionTimeMs}ms`);
+  }
   console.log(`  Concurrent Workers:   ${CONFIG.concurrentWorkers}`);
   console.log(`  Warmup Period:        ${CONFIG.warmupSeconds}s`);
-  console.log(`  Expected Total Jobs:  ~${Math.floor(CONFIG.targetQps * CONFIG.durationSeconds)}`);
+  console.log(`  Expected Total Reqs:  ~${Math.floor(CONFIG.targetQps * CONFIG.durationSeconds)}`);
   console.log('='.repeat(80));
 
-  // Fetch initial metrics
-  console.log('\nFetching initial metrics...');
-  try {
-    initialMetrics = await fetchMetrics();
-    console.log(`Initial job submissions: ${initialMetrics.job_submissions_total || 0}`);
-  } catch (error) {
-    console.log(`Warning: Could not fetch initial metrics: ${error.message}`);
+  // Fetch initial metrics (skip for API layer test)
+  if (!CONFIG.apiLayerTest) {
+    console.log('\nFetching initial metrics...');
+    try {
+      initialMetrics = await fetchMetrics();
+      console.log(`Initial job submissions: ${initialMetrics.job_submissions_total || 0}`);
+    } catch (error) {
+      console.log(`Warning: Could not fetch initial metrics: ${error.message}`);
+    }
   }
 
   // Warmup phase
@@ -316,12 +379,14 @@ async function runLoadTest() {
   // Wait a bit for final requests to complete
   await sleep(2000);
 
-  // Fetch final metrics
-  console.log('\nFetching final metrics...');
-  try {
-    finalMetrics = await fetchMetrics();
-  } catch (error) {
-    console.log(`Warning: Could not fetch final metrics: ${error.message}`);
+  // Fetch final metrics (skip for API layer test)
+  if (!CONFIG.apiLayerTest) {
+    console.log('\nFetching final metrics...');
+    try {
+      finalMetrics = await fetchMetrics();
+    } catch (error) {
+      console.log(`Warning: Could not fetch final metrics: ${error.message}`);
+    }
   }
 
   // Display results
