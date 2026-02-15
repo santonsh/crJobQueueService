@@ -22,7 +22,7 @@ cytoReason/
 │   ├── package.json
 │   ├── nest-cli.json
 │   └── tsconfig.json
-├── docker-compose.yml          # PostgreSQL + Redis
+├── docker-compose.dev-support.yml  # PostgreSQL + Redis for local dev
 ├── ARCHITECTURE.md            # Complete system design
 ├── TODO.md                    # Future enhancements
 ├── README.md                  # Usage instructions

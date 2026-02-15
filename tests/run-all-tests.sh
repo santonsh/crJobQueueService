@@ -143,19 +143,23 @@ run_test "$(dirname "$0")/test-04-cancel-processing.sh"
 run_test "$(dirname "$0")/test-05-concurrent-jobs.sh"
 
 echo ""
-warn "Test 06-07: Abandoned Job Recovery (LONG TEST - ~3-4 minutes)"
-info "This test will:"
-info "  1. Submit a long-running job"
-info "  2. Kill the worker to simulate a crash"
-info "  3. Wait for monitor to detect and re-enqueue the job (1 min timeout + 1 min cron)"
-info "  4. Restart worker and verify completion"
-echo ""
-read -p "Run abandoned job recovery test? (y/N): " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    run_test "$(dirname "$0")/test-07-abandoned-job-recovery.sh"
+if [ "$DEPLOYMENT_ENV" = "local" ]; then
+    warn "Test 06-07: Abandoned Job Recovery (LONG TEST - ~3-4 minutes)"
+    info "This test will:"
+    info "  1. Submit a long-running job"
+    info "  2. Kill the worker to simulate a crash"
+    info "  3. Wait for monitor to detect and re-enqueue the job (1 min timeout + 1 min cron)"
+    info "  4. Restart worker and verify completion"
+    echo ""
+    read -p "Run abandoned job recovery test? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        run_test "$(dirname "$0")/test-07-abandoned-job-recovery.sh"
+    else
+        info "Skipping abandoned job recovery test"
+    fi
 else
-    info "Skipping abandoned job recovery test"
+    info "Test 06-07: Abandoned Job Recovery - SKIPPED (only available in local environment)"
 fi
 
 run_test "$(dirname "$0")/test-08-health-endpoints.sh"

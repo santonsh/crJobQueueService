@@ -32,7 +32,7 @@ npm run docker:up
 Or manually:
 
 ```bash
-docker-compose up -d
+docker-compose -f docker-compose.dev-support.yml up -d
 ```
 
 This will start:

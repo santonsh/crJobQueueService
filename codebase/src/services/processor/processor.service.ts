@@ -91,8 +91,11 @@ export class ProcessorService {
         }
       }
 
-      this.logger.error(`Job ${jobId} permanently failed after ${job.attempts} attempts`);
-      throw error;
+      // Job permanently failed - PostgreSQL is already marked as FAILED
+      // Return normally (don't throw) so BullMQ removes the job from the queue
+      // PostgreSQL is the source of truth for job state
+      this.logger.error(`Job ${jobId} permanently failed after ${job.attempts} attempts - removing from BullMQ`);
+      return;
     }
   }
 
