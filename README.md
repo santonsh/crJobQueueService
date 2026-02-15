@@ -37,7 +37,9 @@ cytoReason/
 │   │   │   └── monitor/       # Monitoring & cron jobs
 │   │   ├── services/          # Business logic (shared across apps)
 │   │   │   ├── jobs/          # Job submission, status, cancellation
-│   │   │   ├── processor/     # Job processing logic & retry
+│   │   │   ├── processor/     # Job processing framework & retry
+│   │   │   ├── job-handlers/  # Pluggable job handlers by class/type
+│   │   │   │   └── handlers/  # test/, gpu/, etc.
 │   │   │   ├── monitor/       # Metrics & abandoned job recovery
 │   │   │   ├── health/        # Health checks
 │   │   │   └── worker-stats/  # Worker statistics

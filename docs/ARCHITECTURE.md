@@ -276,8 +276,15 @@ monitorUI/              # Vue.js web application for monitoring
 - Validation module: Validates job class/type and payload
 
 **Worker Modules:**
-- Processor module: Job execution logic
-- Retry handler: Exponential backoff retry logic
+- Processor module: Job execution framework (retry logic, claiming, state management)
+- Job Handlers module: Pluggable handlers for specific job classes/types
+  - Located in `src/services/job-handlers/`
+  - Handler registry for dynamic routing based on job class/type
+  - Handlers organized by job class: `handlers/test/`, `handlers/gpu/`, etc.
+  - Each handler implements payload validation and execution logic
+  - Examples: `DelayJobHandler` (test/delay), `ModelInferenceJobHandler` (gpu-modelInference/inference)
+  - See "Adding New Job Handlers" section below for implementation guide
+- Retry handler: Exponential backoff retry logic (built into processor)
 - Stats module: Exposes `/stats` endpoint with worker metrics
 
 **Monitor Modules:**
@@ -361,6 +368,177 @@ Jobs are categorized by class and type. Each type can override defaults:
 `ALLOWED_JOBS` is a registry that checks if the requested class/type is supported. Theoretically, each job should have its own DTO/interface as a source of truth, and from these DTO files we should decide if the job is supported and if the payload matches the expected format.
 
 **Note:** This can be defined better after implementation.
+
+## Adding New Job Handlers
+
+The system uses a pluggable job handler architecture that separates job-specific logic from the common processing framework. To add a new job handler:
+
+### Step 1: Create Handler Class
+
+Create a new handler file in `codebase/src/services/job-handlers/handlers/{jobClass}/`:
+
+**Example:** `handlers/payment/process-payment-job.handler.ts`
+
+```typescript
+import { Injectable } from '@nestjs/common';
+import { BaseJobHandler } from '../../base-job.handler';
+
+@Injectable()
+export class ProcessPaymentJobHandler extends BaseJobHandler {
+  constructor() {
+    super('payment', 'processPayment'); // jobClass, jobType
+  }
+
+  validatePayload(payload: any): void {
+    const { orderId, amount, currency } = payload || {};
+
+    if (!orderId || typeof orderId !== 'string') {
+      throw new Error('orderId is required and must be a string');
+    }
+
+    if (!amount || typeof amount !== 'number' || amount <= 0) {
+      throw new Error('amount must be a positive number');
+    }
+
+    if (!currency || typeof currency !== 'string') {
+      throw new Error('currency is required and must be a string');
+    }
+  }
+
+  async execute(payload: any): Promise<any> {
+    const { orderId, amount, currency } = payload;
+
+    // Implement your job logic here
+    // Example: Call payment gateway API
+    const transactionId = await this.processPayment(orderId, amount, currency);
+
+    return {
+      transactionId,
+      orderId,
+      amount,
+      currency,
+      processedAt: new Date().toISOString(),
+    };
+  }
+
+  private async processPayment(orderId: string, amount: number, currency: string): Promise<string> {
+    // Your payment processing logic
+    return 'txn_' + Date.now();
+  }
+}
+```
+
+### Step 2: Add Injection Token
+
+Add a constant for dependency injection in `job-handler.registry.ts`:
+
+```typescript
+export const DELAY_JOB_HANDLER = 'DELAY_JOB_HANDLER';
+export const GPU_INFERENCE_HANDLER = 'GPU_INFERENCE_HANDLER';
+export const PROCESS_PAYMENT_HANDLER = 'PROCESS_PAYMENT_HANDLER'; // Add this
+```
+
+### Step 3: Register in JobHandlersModule
+
+Update `job-handlers.module.ts`:
+
+```typescript
+import { ProcessPaymentJobHandler } from './handlers/payment/process-payment-job.handler';
+
+@Module({
+  providers: [
+    { provide: DELAY_JOB_HANDLER, useClass: DelayJobHandler },
+    { provide: GPU_INFERENCE_HANDLER, useClass: ModelInferenceJobHandler },
+    { provide: PROCESS_PAYMENT_HANDLER, useClass: ProcessPaymentJobHandler }, // Add this
+    JobHandlerRegistry,
+  ],
+  exports: [JobHandlerRegistry],
+})
+export class JobHandlersModule {}
+```
+
+### Step 4: Inject in JobHandlerRegistry
+
+Update `JobHandlerRegistry` constructor in `job-handler.registry.ts`:
+
+```typescript
+constructor(
+  @Inject(DELAY_JOB_HANDLER) private readonly delayHandler: IJobHandler,
+  @Inject(GPU_INFERENCE_HANDLER) private readonly gpuHandler: IJobHandler,
+  @Inject(PROCESS_PAYMENT_HANDLER) private readonly paymentHandler: IJobHandler, // Add this
+) {}
+```
+
+Add to the handlers array in `getHandler()` method:
+
+```typescript
+getHandler(jobClass: string, jobType: string): IJobHandler {
+  const handlers = [
+    this.delayHandler,
+    this.gpuHandler,
+    this.paymentHandler, // Add this
+  ];
+
+  const handler = handlers.find((h) => h.supports(jobClass, jobType));
+
+  if (!handler) {
+    throw new Error(`No handler found for job class "${jobClass}" and type "${jobType}"`);
+  }
+
+  return handler;
+}
+```
+
+### Step 5: Rebuild and Test
+
+```bash
+# Build worker service
+npm run build:worker
+
+# Start worker
+npm run start:worker
+
+# Submit test job
+curl -X POST http://localhost:3000/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "class": "payment",
+    "type": "processPayment",
+    "payload": {
+      "orderId": "order-123",
+      "amount": 99.99,
+      "currency": "USD"
+    }
+  }'
+```
+
+### Handler Implementation Guidelines
+
+1. **Extend BaseJobHandler**: Always extend the abstract base class
+2. **Call super() with class/type**: This enables automatic routing via `supports()`
+3. **Validate thoroughly**: Check all required fields, types, and value ranges
+4. **Throw descriptive errors**: Validation errors should clearly state what's wrong
+5. **Return structured results**: Include relevant output fields and timestamp
+6. **Handle errors gracefully**: Let exceptions bubble up - ProcessorService handles retries
+7. **Keep handlers focused**: One handler per job class/type combination
+8. **Document your handler**: Add JSDoc comments explaining payload structure and behavior
+
+### Directory Structure
+
+```
+codebase/src/services/job-handlers/
+├── job-handler.interface.ts           # IJobHandler interface
+├── base-job.handler.ts                # Abstract base class
+├── job-handler.registry.ts            # Handler registry with injection tokens
+├── job-handlers.module.ts             # NestJS module
+└── handlers/                          # Handler implementations by class
+    ├── test/                          # Test job class
+    │   └── delay-job.handler.ts
+    ├── gpu/                           # GPU job class
+    │   └── model-inference-job.handler.ts
+    └── payment/                       # Payment job class (example)
+        └── process-payment-job.handler.ts
+```
 
 ## Trade-offs
 

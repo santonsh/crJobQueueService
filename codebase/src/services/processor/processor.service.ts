@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job as JobEntity } from '@/common/entities';
 import { JobsService } from '../jobs/jobs.service';
+import { JobHandlerRegistry } from '../job-handlers/job-handler.registry';
 
 @Injectable()
 export class ProcessorService {
@@ -11,6 +12,7 @@ export class ProcessorService {
   constructor(
     private readonly jobsService: JobsService,
     private readonly configService: ConfigService,
+    private readonly jobHandlerRegistry: JobHandlerRegistry,
   ) {}
 
   async processJob(jobId: string, jobClass: string, jobType: string, payload: any): Promise<any> {
@@ -37,8 +39,12 @@ export class ProcessorService {
     payload: any,
   ): Promise<any> {
     try {
-      // Execute job based on class/type
-      const result = await this.executeJob(jobClass, jobType, payload);
+      // Get appropriate handler and validate payload
+      const handler = this.jobHandlerRegistry.getHandler(jobClass, jobType);
+      handler.validatePayload(payload);
+
+      // Execute job using handler
+      const result = await handler.execute(payload);
 
       // Mark as completed (conditional update)
       const completed = await this.jobsService.completeJob(jobId, result);
@@ -97,53 +103,6 @@ export class ProcessorService {
       this.logger.error(`Job ${jobId} permanently failed after ${job.attempts} attempts - removing from BullMQ`);
       return;
     }
-  }
-
-  private async executeJob(jobClass: string, jobType: string, payload: any): Promise<any> {
-    // Route to appropriate job handler based on class/type
-    if (jobClass === 'test') {
-      return this.executeTestJob(jobType, payload);
-    }
-
-    throw new Error(`Unknown job class: ${jobClass}`);
-  }
-
-  private async executeTestJob(type: string, payload: any): Promise<any> {
-    if (type === 'delay') {
-      return this.executeDelayJob(payload);
-    }
-
-    throw new Error(`Unknown test job type: ${type}`);
-  }
-
-  /**
-   * Test job: Delays for specified time and randomly fails
-   * Payload: { executionTime: number (ms), failureProb: number (0-1) }
-   */
-  private async executeDelayJob(payload: {
-    executionTime?: number;
-    failureProb?: number;
-  }): Promise<any> {
-    const executionTime = payload.executionTime || 1000;
-    const failureProb = payload.failureProb || 0;
-
-    if (!this.hfMode) {
-      this.logger.log(`Executing delay job: ${executionTime}ms, failure prob: ${failureProb}`);
-    }
-
-    // Simulate work
-    await this.sleep(executionTime);
-
-    // Random failure
-    if (Math.random() < failureProb) {
-      throw new Error(`Random failure (probability: ${failureProb})`);
-    }
-
-    return {
-      executedAt: new Date().toISOString(),
-      executionTime,
-      success: true,
-    };
   }
 
   private shouldRetry(error: Error): boolean {
