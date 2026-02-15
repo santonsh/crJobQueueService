@@ -277,12 +277,13 @@ monitorUI/              # Vue.js web application for monitoring
 
 **Worker Modules:**
 - Processor module: Job execution framework (retry logic, claiming, state management)
-- Job Handlers module: Pluggable handlers for specific job classes/types
+- Job Handlers module: Lightweight, function-based handlers for specific job classes/types
   - Located in `src/services/job-handlers/`
-  - Handler registry for dynamic routing based on job class/type
+  - Simple function exports (no classes or decorators)
+  - Type-safe configuration via hardcoded imports in `worker-handlers.ts`
   - Handlers organized by job class: `handlers/test/`, `handlers/gpu/`, etc.
-  - Each handler implements payload validation and execution logic
-  - Examples: `DelayJobHandler` (test/delay), `ModelInferenceJobHandler` (gpu-modelInference/inference)
+  - Can optionally import app module services for business logic
+  - Examples: `test/delay` (standalone), `gpu/inference` (uses GpuProcessorService)
   - See "Adding New Job Handlers" section below for implementation guide
 - Retry handler: Exponential backoff retry logic (built into processor)
 - Stats module: Exposes `/stats` endpoint with worker metrics
@@ -371,85 +372,177 @@ Jobs are categorized by class and type. Each type can override defaults:
 
 ## Adding New Job Handlers
 
-The system uses a pluggable job handler architecture that separates job-specific logic from the common processing framework. To add a new job handler:
+The system uses a lightweight, function-based job handler architecture that separates job-specific logic from the common processing framework with minimal boilerplate.
 
-### Step 1: Create Handler Class
+### Design Philosophy
 
-Create a new handler file in `codebase/src/services/job-handlers/handlers/{jobClass}/`:
+**Advantages of this approach:**
+- **Type-safe configuration**: Handler registration via hardcoded imports in `worker-handlers.ts` provides compile-time validation and IDE autocomplete
+- **Zero boilerplate**: No classes, decorators, injection tokens, or manual registration - just export an `execute` function
+- **Service delegation**: Handlers can optionally import app module services for business logic
+- **Worker flexibility**: Different worker types can easily support different handler subsets by modifying `worker-handlers.ts`
+- **Fail-fast**: Missing handlers or incorrect imports cause TypeScript compilation errors, not runtime failures
 
-**Example:** `handlers/payment/process-payment-job.handler.ts`
+### Implementation Steps
+
+**Step 1: Create Handler Function**
+
+Create a handler file in `codebase/src/services/job-handlers/handlers/{jobClass}/{type}.handler.ts`:
+
+**Example (Standalone):** `handlers/payment/process.handler.ts`
+
+```typescript
+/**
+ * Handler for payment/process jobs
+ * Processes payment transactions with validation
+ */
+export async function execute(payload: any): Promise<any> {
+  const { orderId, amount, currency } = payload || {};
+
+  // Validate inputs
+  if (!orderId || typeof orderId !== 'string') {
+    throw new Error('orderId is required and must be a string');
+  }
+
+  if (!amount || typeof amount !== 'number' || amount <= 0) {
+    throw new Error('amount must be a positive number');
+  }
+
+  if (!currency || typeof currency !== 'string') {
+    throw new Error('currency is required and must be a string');
+  }
+
+  // Process payment
+  await sleep(200); // Simulate payment gateway call
+  const transactionId = 'txn_' + Date.now();
+
+  return {
+    transactionId,
+    orderId,
+    amount,
+    currency,
+    processedAt: new Date().toISOString(),
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+```
+
+**Example (Using Service):** `handlers/email/send.handler.ts`
+
+```typescript
+import { EmailService } from '@/appModules/email/email.service';
+
+/**
+ * Handler for email/send jobs
+ * Delegates to EmailService for actual email delivery
+ */
+export async function execute(
+  payload: any,
+  emailService: EmailService,
+): Promise<any> {
+  // Service validates inputs and sends email
+  return await emailService.sendEmail(payload);
+}
+```
+
+**Step 2: Create App Module Service (if needed)**
+
+If your handler needs business logic from an app module, create the service:
+
+`codebase/src/appModules/email/email.service.ts`:
 
 ```typescript
 import { Injectable } from '@nestjs/common';
-import { BaseJobHandler } from '../../base-job.handler';
 
 @Injectable()
-export class ProcessPaymentJobHandler extends BaseJobHandler {
-  constructor() {
-    super('payment', 'processPayment'); // jobClass, jobType
-  }
+export class EmailService {
+  async sendEmail(payload: any): Promise<any> {
+    const { to, subject, body } = payload || {};
 
-  validatePayload(payload: any): void {
-    const { orderId, amount, currency } = payload || {};
-
-    if (!orderId || typeof orderId !== 'string') {
-      throw new Error('orderId is required and must be a string');
+    // Validate
+    if (!to || typeof to !== 'string') {
+      throw new Error('to is required and must be a string');
     }
+    // ... more validation
 
-    if (!amount || typeof amount !== 'number' || amount <= 0) {
-      throw new Error('amount must be a positive number');
-    }
-
-    if (!currency || typeof currency !== 'string') {
-      throw new Error('currency is required and must be a string');
-    }
-  }
-
-  async execute(payload: any): Promise<any> {
-    const { orderId, amount, currency } = payload;
-
-    // Implement your job logic here
-    // Example: Call payment gateway API
-    const transactionId = await this.processPayment(orderId, amount, currency);
+    // Send email logic
+    await this.sendViaProvider(to, subject, body);
 
     return {
-      transactionId,
-      orderId,
-      amount,
-      currency,
-      processedAt: new Date().toISOString(),
+      messageId: 'msg_' + Date.now(),
+      sentAt: new Date().toISOString()
     };
   }
 
-  private async processPayment(orderId: string, amount: number, currency: string): Promise<string> {
-    // Your payment processing logic
-    return 'txn_' + Date.now();
+  private async sendViaProvider(to: string, subject: string, body: string): Promise<void> {
+    // Email provider integration
   }
 }
 ```
 
-### Step 2: Add Injection Token
-
-Add a constant for dependency injection in `job-handler.registry.ts`:
+`codebase/src/appModules/email/email.module.ts`:
 
 ```typescript
-export const DELAY_JOB_HANDLER = 'DELAY_JOB_HANDLER';
-export const GPU_INFERENCE_HANDLER = 'GPU_INFERENCE_HANDLER';
-export const PROCESS_PAYMENT_HANDLER = 'PROCESS_PAYMENT_HANDLER'; // Add this
-```
-
-### Step 3: Register in JobHandlersModule
-
-Update `job-handlers.module.ts`:
-
-```typescript
-import { ProcessPaymentJobHandler } from './handlers/payment/process-payment-job.handler';
+import { Module } from '@nestjs/common';
+import { EmailService } from './email.service';
 
 @Module({
+  providers: [EmailService],
+  exports: [EmailService],
+})
+export class EmailModule {}
+```
+
+**Step 3: Register in worker-handlers.ts**
+
+Add your handler to the type-safe configuration:
+
+```typescript
+import * as testDelay from './handlers/test/delay.handler';
+import * as gpuInference from './handlers/gpu/inference.handler';
+import * as paymentProcess from './handlers/payment/process.handler';  // Add this
+import * as emailSend from './handlers/email/send.handler';            // Add this
+
+export const SUPPORTED_HANDLERS = {
+  'test-delay': testDelay.execute,
+  'gpu-inference': gpuInference.execute,
+  'payment-process': paymentProcess.execute,  // Add this
+  'email-send': emailSend.execute,            // Add this
+};
+```
+
+**Step 4: Update JobHandlersModule (if using services)**
+
+If your handler uses app module services, import the module and add to SERVICE_MAP:
+
+```typescript
+import { EmailModule } from '@/appModules/email/email.module';
+import { EmailService } from '@/appModules/email/email.service';
+
+@Module({
+  imports: [
+    GpuProcessorModule,
+    EmailModule,  // Add this
+  ],
   providers: [
-    { provide: DELAY_JOB_HANDLER, useClass: DelayJobHandler },
-    { provide: GPU_INFERENCE_HANDLER, useClass: ModelInferenceJobHandler },
-    { provide: PROCESS_PAYMENT_HANDLER, useClass: ProcessPaymentJobHandler }, // Add this
+    {
+      provide: HANDLER_MAP,
+      useValue: SUPPORTED_HANDLERS,
+    },
+    {
+      provide: SERVICE_MAP,
+      useFactory: (
+        gpuService: GpuProcessorService,
+        emailService: EmailService,  // Add this
+      ) => ({
+        gpuService,
+        emailService,  // Add this
+      }),
+      inject: [GpuProcessorService, EmailService],  // Add this
+    },
     JobHandlerRegistry,
   ],
   exports: [JobHandlerRegistry],
@@ -457,53 +550,44 @@ import { ProcessPaymentJobHandler } from './handlers/payment/process-payment-job
 export class JobHandlersModule {}
 ```
 
-### Step 4: Inject in JobHandlerRegistry
+**Step 5: Update JobHandlerRegistry (if using services)**
 
-Update `JobHandlerRegistry` constructor in `job-handler.registry.ts`:
-
-```typescript
-constructor(
-  @Inject(DELAY_JOB_HANDLER) private readonly delayHandler: IJobHandler,
-  @Inject(GPU_INFERENCE_HANDLER) private readonly gpuHandler: IJobHandler,
-  @Inject(PROCESS_PAYMENT_HANDLER) private readonly paymentHandler: IJobHandler, // Add this
-) {}
-```
-
-Add to the handlers array in `getHandler()` method:
+Add service routing in the `execute` method:
 
 ```typescript
-getHandler(jobClass: string, jobType: string): IJobHandler {
-  const handlers = [
-    this.delayHandler,
-    this.gpuHandler,
-    this.paymentHandler, // Add this
-  ];
-
-  const handler = handlers.find((h) => h.supports(jobClass, jobType));
+async execute(jobClass: string, jobType: string, payload: any): Promise<any> {
+  const handlerKey = `${jobClass}-${jobType}` as HandlerKey;
+  const handler = this.handlerMap[handlerKey];
 
   if (!handler) {
-    throw new Error(`No handler found for job class "${jobClass}" and type "${jobType}"`);
+    throw new Error(
+      `No handler found for job class "${jobClass}" and type "${jobType}"`,
+    );
   }
 
-  return handler;
+  // Route services to handlers that need them
+  if (handlerKey === 'gpu-inference') {
+    return await (handler as any)(payload, this.serviceMap.gpuService);
+  } else if (handlerKey === 'email-send') {  // Add this
+    return await (handler as any)(payload, this.serviceMap.emailService);
+  } else {
+    return await (handler as any)(payload);
+  }
 }
 ```
 
-### Step 5: Rebuild and Test
+**Step 6: Rebuild and Test**
 
 ```bash
 # Build worker service
 npm run build:worker
-
-# Start worker
-npm run start:worker
 
 # Submit test job
 curl -X POST http://localhost:3000/jobs \
   -H "Content-Type: application/json" \
   -d '{
     "class": "payment",
-    "type": "processPayment",
+    "type": "process",
     "payload": {
       "orderId": "order-123",
       "amount": 99.99,
@@ -514,31 +598,57 @@ curl -X POST http://localhost:3000/jobs \
 
 ### Handler Implementation Guidelines
 
-1. **Extend BaseJobHandler**: Always extend the abstract base class
-2. **Call super() with class/type**: This enables automatic routing via `supports()`
-3. **Validate thoroughly**: Check all required fields, types, and value ranges
-4. **Throw descriptive errors**: Validation errors should clearly state what's wrong
-5. **Return structured results**: Include relevant output fields and timestamp
-6. **Handle errors gracefully**: Let exceptions bubble up - ProcessorService handles retries
-7. **Keep handlers focused**: One handler per job class/type combination
-8. **Document your handler**: Add JSDoc comments explaining payload structure and behavior
+1. **Export execute function**: Always export an async `execute(payload, ...services)` function
+2. **Validate in handlers or services**: Services should validate their inputs; standalone handlers can validate inline
+3. **Throw descriptive errors**: Validation errors should clearly state what's wrong
+4. **Return structured results**: Include relevant output fields and timestamp
+5. **Handle errors gracefully**: Let exceptions bubble up - ProcessorService handles retries
+6. **Keep handlers focused**: One handler per job class/type combination
+7. **Document your handler**: Add JSDoc comments explaining payload structure and behavior
+8. **Use services for reusability**: If logic is used elsewhere, put it in an app module service
 
 ### Directory Structure
 
 ```
 codebase/src/services/job-handlers/
-├── job-handler.interface.ts           # IJobHandler interface
-├── base-job.handler.ts                # Abstract base class
-├── job-handler.registry.ts            # Handler registry with injection tokens
-├── job-handlers.module.ts             # NestJS module
+├── worker-handlers.ts                 # Type-safe handler configuration (edit this!)
+├── job-handler.registry.ts            # Registry that routes to handlers
+├── job-handlers.module.ts             # NestJS module with service injection
 └── handlers/                          # Handler implementations by class
-    ├── test/                          # Test job class
-    │   └── delay-job.handler.ts
-    ├── gpu/                           # GPU job class
-    │   └── model-inference-job.handler.ts
-    └── payment/                       # Payment job class (example)
-        └── process-payment-job.handler.ts
+    ├── test/
+    │   └── delay.handler.ts           # Standalone handler
+    ├── gpu/
+    │   └── inference.handler.ts       # Uses GpuProcessorService
+    ├── payment/                       # Example
+    │   └── process.handler.ts
+    └── email/                         # Example
+        └── send.handler.ts
+
+codebase/src/appModules/               # App module services (optional)
+├── gpu-processor/
+│   ├── gpu-processor.service.ts
+│   └── gpu-processor.module.ts
+└── email/                             # Example
+    ├── email.service.ts
+    └── email.module.ts
 ```
+
+### Creating Different Worker Types
+
+To create specialized workers that support different handler subsets, simply create a different `worker-handlers.ts`:
+
+**worker-handlers-gpu.ts** (GPU-only workers):
+```typescript
+import * as gpuInference from './handlers/gpu/inference.handler';
+import * as gpuTraining from './handlers/gpu/training.handler';
+
+export const SUPPORTED_HANDLERS = {
+  'gpu-inference': gpuInference.execute,
+  'gpu-training': gpuTraining.execute,
+};
+```
+
+Then configure the worker module to use `worker-handlers-gpu.ts` instead of the default.
 
 ## Trade-offs
 

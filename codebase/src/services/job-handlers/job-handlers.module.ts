@@ -1,33 +1,40 @@
 import { Module } from '@nestjs/common';
-import { JobHandlerRegistry, DELAY_JOB_HANDLER, GPU_INFERENCE_HANDLER } from './job-handler.registry';
-import { DelayJobHandler } from './handlers/test/delay-job.handler';
-import { ModelInferenceJobHandler } from './handlers/gpu/model-inference-job.handler';
+import { JobHandlerRegistry, HANDLER_MAP, SERVICE_MAP } from './job-handler.registry';
+import { SUPPORTED_HANDLERS } from './worker-handlers';
+import { GpuProcessorModule } from '@/appModules/gpu-processor/gpu-processor.module';
+import { GpuProcessorService } from '@/appModules/gpu-processor/gpu-processor.service';
 
 /**
  * Module for job handlers
  *
  * Provides:
  * - Registry for job handler discovery and routing
- * - All job handler implementations
+ * - Handler map with type-safe imports
+ * - Service map for dependency injection into handlers
  *
  * To add a new job handler:
- * 1. Create handler class extending BaseJobHandler in handlers/{class}/ directory
- *    (e.g., handlers/test/delay-job.handler.ts or handlers/gpu/model-inference-job.handler.ts)
- * 2. Add injection token constant in job-handler.registry.ts
- * 3. Add provider here with the injection token
- * 4. Inject in JobHandlerRegistry constructor
- * 5. Add to handlers array in JobHandlerRegistry.getHandler()
+ * 1. Create handler file in handlers/{class}/{type}.handler.ts
+ * 2. Export async execute(payload, ...services) function
+ * 3. Add import to worker-handlers.ts
+ * 4. Add to SUPPORTED_HANDLERS map in worker-handlers.ts
+ * 5. If handler needs services, import module here and add to SERVICE_MAP factory
  */
 @Module({
+  imports: [GpuProcessorModule],
   providers: [
-    // Job handler implementations
+    // Handler map - type-safe configuration from worker-handlers.ts
     {
-      provide: DELAY_JOB_HANDLER,
-      useClass: DelayJobHandler,
+      provide: HANDLER_MAP,
+      useValue: SUPPORTED_HANDLERS,
     },
+
+    // Service map - services available to handlers
     {
-      provide: GPU_INFERENCE_HANDLER,
-      useClass: ModelInferenceJobHandler,
+      provide: SERVICE_MAP,
+      useFactory: (gpuService: GpuProcessorService) => ({
+        gpuService,
+      }),
+      inject: [GpuProcessorService],
     },
 
     // Registry service

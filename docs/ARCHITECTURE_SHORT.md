@@ -27,9 +27,10 @@ Concise overview of the Job Queue Service architecture. For detailed explanation
 - **API**: Job submission and query endpoints (NestJS)
 - **BullMQ**: Distributed queue built on Redis
 - **Worker**: Processes jobs with configurable concurrency (NestJS)
-  - **Job Handlers**: Pluggable handlers for job execution (`handlers/test/`, `handlers/gpu/`)
-  - Each handler validates payload and implements job-specific logic
-  - Registry pattern routes jobs by class/type
+  - **Job Handlers**: Lightweight, function-based handlers with zero boilerplate (`handlers/test/`, `handlers/gpu/`)
+  - Type-safe configuration via hardcoded imports in `worker-handlers.ts`
+  - Handlers can optionally delegate to app module services for business logic
+  - See [ARCHITECTURE.md](ARCHITECTURE.md#adding-new-job-handlers) for implementation guide
 - **PostgreSQL**: Single source of truth for job state
 - **Monitor**: Detects and recovers abandoned jobs, exposes metrics (NestJS)
 - **MonitorUI**: Real-time metrics dashboard (Vue 3 + Vuetify)

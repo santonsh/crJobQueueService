@@ -46,13 +46,13 @@ fi
 
 echo ""
 
-# Test 1b: gpu-modelInference/inference job
-info "Test 1b: Submitting gpu-modelInference/inference job..."
+# Test 1b: gpu/inference job
+info "Test 1b: Submitting gpu/inference job..."
 
 JOB_RESPONSE=$(curl -s -X POST "$API_URL/jobs" \
   -H "Content-Type: application/json" \
   -d '{
-    "class": "gpu-modelInference",
+    "class": "gpu",
     "type": "inference",
     "payload": {
       "modelId": "model-v1.2.3",
@@ -64,13 +64,13 @@ JOB_ID_GPU=$(echo $JOB_RESPONSE | jq -r '.jobId')
 INITIAL_STATUS=$(echo $JOB_RESPONSE | jq -r '.status')
 
 if [ "$INITIAL_STATUS" == "PENDING" ]; then
-    pass "gpu-modelInference job created with status PENDING (ID: $JOB_ID_GPU)"
+    pass "gpu/inference job created with status PENDING (ID: $JOB_ID_GPU)"
 else
-    fail "gpu-modelInference job not created with PENDING status" "Got: $INITIAL_STATUS"
+    fail "gpu/inference job not created with PENDING status" "Got: $INITIAL_STATUS"
     exit 1
 fi
 
-info "Waiting for gpu-modelInference job to complete (100ms execution + processing time)..."
+info "Waiting for gpu/inference job to complete (100ms execution + processing time)..."
 sleep 2
 
 FINAL_STATUS=$(curl -s "$API_URL/jobs/$JOB_ID_GPU" | jq -r '.status')
@@ -78,7 +78,7 @@ JOB_RESULT=$(curl -s "$API_URL/jobs/$JOB_ID_GPU" | jq -r '.result')
 INFERENCE_RESULT=$(echo $JOB_RESULT | jq -r '.result')
 
 if [ "$FINAL_STATUS" == "COMPLETED" ]; then
-    pass "gpu-modelInference job completed successfully"
+    pass "gpu/inference job completed successfully"
     info "Result: $JOB_RESULT"
 
     # Validate inference result is between 0-10
@@ -89,7 +89,7 @@ if [ "$FINAL_STATUS" == "COMPLETED" ]; then
         exit 1
     fi
 else
-    fail "gpu-modelInference job did not complete" "Status: $FINAL_STATUS"
+    fail "gpu/inference job did not complete" "Status: $FINAL_STATUS"
     exit 1
 fi
 

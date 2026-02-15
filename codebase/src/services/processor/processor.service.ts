@@ -39,12 +39,8 @@ export class ProcessorService {
     payload: any,
   ): Promise<any> {
     try {
-      // Get appropriate handler and validate payload
-      const handler = this.jobHandlerRegistry.getHandler(jobClass, jobType);
-      handler.validatePayload(payload);
-
-      // Execute job using handler
-      const result = await handler.execute(payload);
+      // Execute job using registry (handlers validate their own inputs)
+      const result = await this.jobHandlerRegistry.execute(jobClass, jobType, payload);
 
       // Mark as completed (conditional update)
       const completed = await this.jobsService.completeJob(jobId, result);

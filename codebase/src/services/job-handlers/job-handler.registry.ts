@@ -1,35 +1,34 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { IJobHandler } from './job-handler.interface';
+import { SUPPORTED_HANDLERS, HandlerKey } from './worker-handlers';
+import { GpuProcessorService } from '@/appModules/gpu-processor/gpu-processor.service';
 
-// Injection tokens for job handlers
-export const DELAY_JOB_HANDLER = 'DELAY_JOB_HANDLER';
-export const GPU_INFERENCE_HANDLER = 'GPU_INFERENCE_HANDLER';
+export const HANDLER_MAP = 'HANDLER_MAP';
+export const SERVICE_MAP = 'SERVICE_MAP';
 
 /**
- * Registry for job handlers
+ * Job Handler Registry
  *
- * Manages all available job handlers and routes jobs to the appropriate handler
- * based on job class and type.
+ * Routes job execution to appropriate handlers based on job class and type.
+ * Uses a simple function map pattern for minimal boilerplate.
  */
 @Injectable()
 export class JobHandlerRegistry {
   constructor(
-    @Inject(DELAY_JOB_HANDLER) private readonly delayHandler: IJobHandler,
-    @Inject(GPU_INFERENCE_HANDLER)
-    private readonly gpuHandler: IJobHandler,
+    @Inject(HANDLER_MAP) private readonly handlerMap: typeof SUPPORTED_HANDLERS,
+    @Inject(SERVICE_MAP) private readonly serviceMap: { gpuService: GpuProcessorService },
   ) {}
 
   /**
-   * Gets the appropriate handler for the given job class and type
-   * @param jobClass - The job class (e.g., 'test', 'gpu-modelInference')
-   * @param jobType - The job type (e.g., 'delay', 'inference')
-   * @returns The job handler
-   * @throws Error if no handler is found for the job class/type
+   * Executes a job using the appropriate handler
+   * @param jobClass - Job class (e.g., 'test', 'gpu')
+   * @param jobType - Job type (e.g., 'delay', 'inference')
+   * @param payload - Job payload
+   * @returns Job execution result
+   * @throws Error if no handler found for job class/type combination
    */
-  getHandler(jobClass: string, jobType: string): IJobHandler {
-    const handlers = [this.delayHandler, this.gpuHandler];
-
-    const handler = handlers.find((h) => h.supports(jobClass, jobType));
+  async execute(jobClass: string, jobType: string, payload: any): Promise<any> {
+    const handlerKey = `${jobClass}-${jobType}` as HandlerKey;
+    const handler = this.handlerMap[handlerKey];
 
     if (!handler) {
       throw new Error(
@@ -37,6 +36,11 @@ export class JobHandlerRegistry {
       );
     }
 
-    return handler;
+    // Execute handler with appropriate services based on handler key
+    if (handlerKey === 'gpu-inference') {
+      return await (handler as any)(payload, this.serviceMap.gpuService);
+    } else {
+      return await (handler as any)(payload);
+    }
   }
 }
