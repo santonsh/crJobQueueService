@@ -6,6 +6,14 @@ source "$(dirname "$0")/test-utils.sh"
 
 echo -e "${BLUE}=== Test 7: Abandoned Job Recovery ===${NC}"
 
+# Skip test for non-local environments (can't control worker processes in Docker)
+if [ "$DEPLOYMENT_ENV" != "local" ]; then
+    info "Skipping abandoned job recovery test (only available in local environment)"
+    info "This test requires the ability to kill and restart worker processes"
+    pass "Test skipped for $DEPLOYMENT_ENV environment"
+    exit 0
+fi
+
 # Step 1: Submit a long-running job (30 seconds)
 info "Submitting long-running job (30 seconds)..."
 

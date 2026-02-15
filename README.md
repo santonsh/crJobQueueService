@@ -116,21 +116,65 @@ The dashboard provides:
 - `npm run start:monitor` - Start monitor
 
 ### Docker
-- `npm run docker:up` - Start PostgreSQL and Redis
-- `npm run docker:down` - Stop and remove containers
-- `npm run docker:logs` - View container logs
 
-#### Load-Balanced Setup (2K+ QPS)
-For high-throughput testing with 2 API instances behind nginx load balancer:
+Three deployment scenarios are available:
+
+#### 1. **Support Services Only** (for local development)
+Just PostgreSQL + Redis, run API/workers/monitor locally:
+
+```bash
+# Start support services
+docker-compose -f docker-compose.support.yml up -d
+
+# Run locally
+npm run build:api && npm run start:api
+npm run build:worker && npm run start:worker
+npm run build:monitor && npm run start:monitor
+
+# Run load test
+node tests/load-test-2k-qps.js --env support --qps 1000 --duration 60
+
+# Stop
+docker-compose -f docker-compose.support.yml down
+```
+
+**Ports:** PostgreSQL: 5433, Redis: 6380
+
+---
+
+#### 2. **Full Stack** (single API instance)
+Complete stack with 1 API instance:
+
+```bash
+# Start full stack (1× API, 5× Workers, PostgreSQL, Redis, Monitor)
+docker-compose -f docker-compose.full.yml up --build
+
+# Run load test
+node tests/load-test-2k-qps.js --env full --qps 1000 --duration 60
+
+# Stop
+docker-compose -f docker-compose.full.yml down
+```
+
+**Ports:** API: 3010, Monitor: 3012, PostgreSQL: 5433, Redis: 6380
+
+**Expected Performance:** ~1,000-1,700 QPS (depending on USE_RAW_SQL setting)
+
+---
+
+#### 3. **Load-Balanced** (2× API instances for high throughput)
+High-availability setup with nginx load balancer:
 
 ```bash
 # Start load-balanced stack (2× API, 5× Workers, nginx, PostgreSQL, Redis, Monitor)
 docker-compose -f docker-compose.loadbalanced.yml up --build
 
-# Run 2K QPS load test
+# Run load test (supports backward-compatible --docker flag)
+node tests/load-test-2k-qps.js --env loadbalanced --qps 2000 --duration 60
+# or
 node tests/load-test-2k-qps.js --docker --qps 2000 --duration 60
 
-# Stop and remove containers
+# Stop
 docker-compose -f docker-compose.loadbalanced.yml down
 ```
 
@@ -140,9 +184,29 @@ docker-compose -f docker-compose.loadbalanced.yml down
 - 5 workers (50 concurrent jobs each = 250 total capacity)
 - Monitor service (port 3012)
 
+**Ports:** nginx: 3010, Monitor: 3012, PostgreSQL: 5433, Redis: 6380
+
 **Expected Performance:**
-- Single API instance: ~1,084 QPS (Docker with raw SQL)
-- Load-balanced (2× API): **~2,168 QPS** ✅ (exceeds 2K target)
+- TypeORM: 1,281 QPS (128% of 1K target) ✅
+- Raw SQL: **1,704 QPS** (170% of 1K target) ✅
+
+---
+
+### Load Test Environment Flags
+
+The load test script supports `--env` flag to specify deployment:
+
+```bash
+node tests/load-test-2k-qps.js --env <type>
+```
+
+Available environments:
+- `local` - Local dev (API: 3000, Monitor: 3002) [default]
+- `support` - Support services + local apps (API: 3000, Monitor: 3002)
+- `full` - Full stack Docker (API: 3010, Monitor: 3012)
+- `loadbalanced` - Load-balanced Docker (API: 3010, Monitor: 3012)
+
+The `--docker` flag is an alias for `--env loadbalanced` (backward compatibility)
 
 ### Testing
 - `npm test` - Run tests
@@ -171,6 +235,11 @@ docker-compose -f docker-compose.loadbalanced.yml down
 - Auto-refreshes metrics every 5 seconds
 - Integrated test runner with visual feedback
 - Responsive design with Vuetify components
+- **Environment selector** - Switch between deployment scenarios:
+  - Local Dev (3002)
+  - Load-Balanced (3012)
+  - Full Stack (3012)
+  - Support + Local (3002)
 
 ## Project Structure
 

@@ -67,11 +67,14 @@ export class MonitorService implements OnModuleInit, OnModuleDestroy {
       // Check abandoned PENDING jobs
       const pendingJobsRecovered = await this.recoverAbandonedPendingJobs();
 
-      const totalRecovered = processingJobsRecovered + pendingJobsRecovered;
+      // Check BullMQ failed queue for jobs with transient errors
+      const failedQueueJobsProcessed = await this.recoverFailedQueueJobs();
+
+      const totalRecovered = processingJobsRecovered + pendingJobsRecovered + failedQueueJobsProcessed;
       if (totalRecovered > 0) {
         this.logger.log(
           `Recovered ${totalRecovered} abandoned jobs ` +
-          `(${processingJobsRecovered} PROCESSING, ${pendingJobsRecovered} PENDING)`,
+          `(PROCESSING: ${processingJobsRecovered}, PENDING: ${pendingJobsRecovered}, FAILED_QUEUE: ${failedQueueJobsProcessed})`,
         );
         this.abandonedJobsRecovered += totalRecovered;
       }
@@ -132,6 +135,86 @@ export class MonitorService implements OnModuleInit, OnModuleDestroy {
     }
 
     return abandonedJobs.length;
+  }
+
+  private async recoverFailedQueueJobs(): Promise<number> {
+    try {
+      const maxFailedJobs = 1000;
+      const failedJobs = await this.jobsQueue.getFailed(0, maxFailedJobs);
+
+      if (failedJobs.length === 0) {
+        return 0;
+      }
+
+      this.logger.warn(`Found ${failedJobs.length} jobs in BullMQ failed queue`);
+
+      let retriedCount = 0;
+      let reconciledCount = 0;
+
+      for (const bullJob of failedJobs) {
+        try {
+          const jobId = bullJob.data?.jobId;
+          if (!jobId) {
+            continue;
+          }
+
+          const failureReason = bullJob.failedReason || '';
+
+          // Check if it's a transient infrastructure error
+          const isTransient =
+            failureReason.includes('too many clients') ||
+            failureReason.includes('connection timeout') ||
+            failureReason.includes('ECONNREFUSED') ||
+            failureReason.includes('Connection terminated') ||
+            failureReason.includes('ETIMEDOUT');
+
+          if (isTransient) {
+            // Retry the job (move from failed back to wait queue)
+            await bullJob.retry();
+            this.logger.log(`Retried job ${jobId} from failed queue: ${failureReason}`);
+            retriedCount++;
+          } else {
+            // Permanent failure - reconcile DB state
+            try {
+              const dbJob = await this.jobsService.findById(jobId);
+              if (dbJob && dbJob.status !== 'FAILED') {
+                await this.jobsService.failJob(
+                  jobId,
+                  {
+                    message: failureReason,
+                    source: 'bullmq_failed_queue_reconciliation',
+                    timestamp: new Date().toISOString(),
+                  },
+                  false, // Don't increment attempts
+                );
+                this.logger.log(`Reconciled job ${jobId} as FAILED in DB (was ${dbJob.status})`);
+                reconciledCount++;
+              }
+            } catch (error) {
+              // Job might not exist in DB, skip reconciliation
+              this.logger.debug(`Could not reconcile job ${jobId}: ${error.message}`);
+            }
+          }
+        } catch (error) {
+          this.logger.error(
+            `Failed to process failed queue job: ${error.message}`,
+          );
+        }
+      }
+
+      if (retriedCount > 0 || reconciledCount > 0) {
+        this.logger.log(
+          `Processed ${failedJobs.length} failed queue jobs: ` +
+            `${retriedCount} retried (transient errors), ` +
+            `${reconciledCount} reconciled (permanent failures)`,
+        );
+      }
+
+      return retriedCount + reconciledCount;
+    } catch (error) {
+      this.logger.error(`Failed to recover failed queue jobs: ${error.message}`, error.stack);
+      return 0;
+    }
   }
 
   async handleCleanup() {
@@ -220,14 +303,14 @@ export class MonitorService implements OnModuleInit, OnModuleDestroy {
       // Query BullMQ Redis for current queue state
       // - waiting: Jobs in queue, not yet picked up by a worker
       // - active: Jobs currently being processed by workers (still in BullMQ until completion)
-      // NOTE: We don't track completed/failed here as they're ephemeral Redis entries
-      //       For historical completed/failed counts, use getJobMetrics() which queries the DB
-      const counts = await this.jobsQueue.getJobCounts('waiting', 'active');
+      // - failed: Jobs that failed and are in the failed queue
+      const counts = await this.jobsQueue.getJobCounts('waiting', 'active', 'failed');
 
       return {
         queue_depth: counts.waiting + counts.active, // Total jobs in flight
         queue_waiting: counts.waiting,                // Jobs waiting for a worker
         queue_active: counts.active,                  // Jobs currently being processed
+        queue_failed: counts.failed,                  // Jobs in failed queue
       };
     } catch (error) {
       this.logger.error(`Failed to get queue metrics: ${error.message}`);
@@ -235,6 +318,7 @@ export class MonitorService implements OnModuleInit, OnModuleDestroy {
         queue_depth: 0,
         queue_waiting: 0,
         queue_active: 0,
+        queue_failed: 0,
       };
     }
   }

@@ -7,8 +7,30 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Deployment environment configuration
+# Can be overridden by passing --env parameter to run-all-tests.sh
+# Supported values: local, full, loadbalanced
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-local}"
+
+# Port configuration for different environments
+case "$DEPLOYMENT_ENV" in
+  full)
+    API_PORT=3020
+    MONITOR_PORT=3022
+    ;;
+  loadbalanced)
+    API_PORT=3010
+    MONITOR_PORT=3012
+    ;;
+  local|*)
+    API_PORT=3000
+    MONITOR_PORT=3002
+    ;;
+esac
+
 # API endpoint
-API_URL="http://localhost:3000"
+API_URL="http://localhost:$API_PORT"
+MONITOR_URL="http://localhost:$MONITOR_PORT"
 
 # Helper functions
 pass() {

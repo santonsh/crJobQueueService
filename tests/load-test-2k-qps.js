@@ -27,7 +27,11 @@
  *   --execution-time <ms> Job execution time in ms (default: 100)
  *   --concurrency <num>   Number of concurrent workers (default: 50)
  *   --warmup <seconds>    Warmup period before test (default: 5)
- *   --docker              Use Docker Compose ports (API: 3010, Monitor: 3012)
+ *   --env <type>          Deployment environment:
+ *                         - local: Local dev (API: 3000, Monitor: 3002) [default]
+ *                         - full: Full stack Docker (API: 3020, Monitor: 3022)
+ *                         - loadbalanced: Load-balanced Docker (API: 3010, Monitor: 3012)
+ *   --docker              Alias for --env loadbalanced (backward compatibility)
  *   --api-layer           Test API layer only (GET /health) without database writes
  */
 
@@ -40,18 +44,35 @@ const getArg = (name, defaultValue) => {
   const index = args.indexOf(name);
   return index !== -1 && args[index + 1] ? parseInt(args[index + 1], 10) : defaultValue;
 };
+const getStringArg = (name, defaultValue) => {
+  const index = args.indexOf(name);
+  return index !== -1 && args[index + 1] ? args[index + 1] : defaultValue;
+};
 const hasFlag = (name) => args.indexOf(name) !== -1;
 
-// Check flags
-const isDockerMode = hasFlag('--docker');
+// Determine deployment environment
+let deploymentEnv = getStringArg('--env', 'local');
+if (hasFlag('--docker')) {
+  deploymentEnv = 'loadbalanced'; // Backward compatibility
+}
+
+// Port configuration for different environments
+const ENV_PORTS = {
+  local: { api: 3000, monitor: 3002 },
+  full: { api: 3020, monitor: 3022 },
+  loadbalanced: { api: 3010, monitor: 3012 },
+};
+
+const ports = ENV_PORTS[deploymentEnv] || ENV_PORTS.local;
 const isApiLayerTest = hasFlag('--api-layer');
 
 // Test configuration
 const CONFIG = {
+  environment: deploymentEnv,
   apiUrl: 'localhost',
-  apiPort: isDockerMode ? 3010 : 3000,
+  apiPort: ports.api,
   monitorUrl: 'localhost',
-  monitorPort: isDockerMode ? 3012 : 3002,
+  monitorPort: ports.monitor,
   targetQps: getArg('--qps', 2000),
   durationSeconds: getArg('--duration', 60),
   jobExecutionTimeMs: getArg('--execution-time', 100),
@@ -292,7 +313,8 @@ async function runLoadTest() {
   console.log('2K QPS Load Test');
   console.log('='.repeat(80));
   console.log(`Configuration:`);
-  console.log(`  Mode:                 ${isDockerMode ? 'Docker Compose' : 'Development'}`);
+  console.log(`  Mode:                 ${deploymentEnv}`);
+  console.log(`  Environment:          ${CONFIG.environment}`);
   console.log(`  Test Type:            ${CONFIG.apiLayerTest ? 'API Layer Only (GET /health)' : 'Full Stack (POST /jobs)'}`);
   console.log(`  API URL:              http://${CONFIG.apiUrl}:${CONFIG.apiPort}`);
   console.log(`  Monitor URL:          http://${CONFIG.monitorUrl}:${CONFIG.monitorPort}`);

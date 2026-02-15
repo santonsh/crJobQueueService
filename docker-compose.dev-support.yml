@@ -1,0 +1,42 @@
+name: dev-support
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: dev-support-postgres
+    environment:
+      POSTGRES_USER: jobsuser
+      POSTGRES_PASSWORD: jobspass
+      POSTGRES_DB: jobsdb
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data:rw,noexec,nosuid,size=2g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobsuser -d jobsdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dev-support-network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: dev-support-redis
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dev-support-network
+
+networks:
+  dev-support-network:
+    driver: bridge

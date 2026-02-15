@@ -57,7 +57,7 @@
                   </v-col>
                   <v-col cols="12" md="4">
                     <v-list-item>
-                      <v-list-item-title>Jobs Deleted</v-list-item-title>
+                      <v-list-item-title>Jobs TTL Cleaned</v-list-item-title>
                       <v-list-item-subtitle class="text-h6">
                         {{ systemMetrics.jobs_deleted_total || 0 }}
                       </v-list-item-subtitle>
@@ -78,7 +78,7 @@
           </v-col>
 
           <!-- Job Metrics -->
-          <v-col cols="12" md="6">
+          <v-col cols="12">
             <v-card>
               <v-card-title class="d-flex align-center">
                 <v-icon class="mr-2">mdi-briefcase</v-icon>
@@ -86,7 +86,7 @@
               </v-card-title>
               <v-card-text>
                 <v-row v-if="jobMetrics">
-                  <v-col cols="6" md="4">
+                  <v-col cols="6" md="2">
                     <v-list-item>
                       <v-list-item-title>Total Submissions</v-list-item-title>
                       <v-list-item-subtitle class="text-h6">
@@ -94,7 +94,7 @@
                       </v-list-item-subtitle>
                     </v-list-item>
                   </v-col>
-                  <v-col cols="6" md="4">
+                  <v-col cols="6" md="2">
                     <v-list-item>
                       <v-list-item-title>Pending</v-list-item-title>
                       <v-list-item-subtitle class="text-h6">
@@ -102,7 +102,7 @@
                       </v-list-item-subtitle>
                     </v-list-item>
                   </v-col>
-                  <v-col cols="6" md="4">
+                  <v-col cols="6" md="2">
                     <v-list-item>
                       <v-list-item-title>Processing</v-list-item-title>
                       <v-list-item-subtitle class="text-h6">
@@ -110,7 +110,7 @@
                       </v-list-item-subtitle>
                     </v-list-item>
                   </v-col>
-                  <v-col cols="6" md="4">
+                  <v-col cols="6" md="2">
                     <v-list-item>
                       <v-list-item-title>Completed</v-list-item-title>
                       <v-list-item-subtitle class="text-h6 text-success">
@@ -118,7 +118,7 @@
                       </v-list-item-subtitle>
                     </v-list-item>
                   </v-col>
-                  <v-col cols="6" md="4">
+                  <v-col cols="6" md="2">
                     <v-list-item>
                       <v-list-item-title>Failed</v-list-item-title>
                       <v-list-item-subtitle class="text-h6 text-error">
@@ -126,7 +126,7 @@
                       </v-list-item-subtitle>
                     </v-list-item>
                   </v-col>
-                  <v-col cols="6" md="4">
+                  <v-col cols="6" md="2">
                     <v-list-item>
                       <v-list-item-title>Cancelled</v-list-item-title>
                       <v-list-item-subtitle class="text-h6">
@@ -141,7 +141,7 @@
           </v-col>
 
           <!-- Queue Metrics -->
-          <v-col cols="12" md="6">
+          <v-col cols="12">
             <v-card>
               <v-card-title class="d-flex align-center">
                 <v-icon class="mr-2">mdi-format-list-bulleted</v-icon>
@@ -149,7 +149,7 @@
               </v-card-title>
               <v-card-text>
                 <v-row v-if="queueMetrics">
-                  <v-col cols="12" md="4">
+                  <v-col cols="12" md="3">
                     <v-list-item>
                       <v-list-item-title>Queue Depth (In Flight)</v-list-item-title>
                       <v-list-item-subtitle class="text-h6">
@@ -157,7 +157,7 @@
                       </v-list-item-subtitle>
                     </v-list-item>
                   </v-col>
-                  <v-col cols="12" md="4">
+                  <v-col cols="12" md="3">
                     <v-list-item>
                       <v-list-item-title>Waiting</v-list-item-title>
                       <v-list-item-subtitle class="text-h6">
@@ -165,11 +165,19 @@
                       </v-list-item-subtitle>
                     </v-list-item>
                   </v-col>
-                  <v-col cols="12" md="4">
+                  <v-col cols="12" md="3">
                     <v-list-item>
                       <v-list-item-title>Active (Processing)</v-list-item-title>
                       <v-list-item-subtitle class="text-h6">
                         {{ queueMetrics.queue_active || 0 }}
+                      </v-list-item-subtitle>
+                    </v-list-item>
+                  </v-col>
+                  <v-col cols="12" md="3">
+                    <v-list-item>
+                      <v-list-item-title>Failed</v-list-item-title>
+                      <v-list-item-subtitle class="text-h6 text-error">
+                        {{ queueMetrics.queue_failed || 0 }}
                       </v-list-item-subtitle>
                     </v-list-item>
                   </v-col>
@@ -228,6 +236,23 @@
                       {{ item.worker_active_jobs || 0 }}
                     </v-chip>
                   </template>
+                  <template v-slot:item.worker_db_pool_usage_percent="{ item }">
+                    <v-chip
+                      size="small"
+                      :color="(item.worker_db_pool_usage_percent || 0) > 90 ? 'error' :
+                             (item.worker_db_pool_usage_percent || 0) > 80 ? 'warning' : 'default'"
+                    >
+                      {{ item.worker_db_pool_usage_percent || 0 }}%
+                    </v-chip>
+                  </template>
+                  <template v-slot:item.worker_db_pool_waiting="{ item }">
+                    <v-chip
+                      size="small"
+                      :color="(item.worker_db_pool_waiting || 0) > 0 ? 'error' : 'default'"
+                    >
+                      {{ item.worker_db_pool_waiting || 0 }}
+                    </v-chip>
+                  </template>
                   <template v-slot:item.worker_uptime_seconds="{ item }">
                     <span>{{ formatUptime(item.worker_uptime_seconds) }}</span>
                   </template>
@@ -260,13 +285,21 @@ import axios from 'axios'
 // Environment selection
 const environments = [
   { label: 'Local (3002)', value: 'local' },
-  { label: 'Docker (3012)', value: 'docker' }
+  { label: 'Full Stack (3022)', value: 'full' },
+  { label: 'Load-Balanced (3012)', value: 'loadbalanced' }
 ]
 
 const environment = ref(localStorage.getItem('monitor-env') || 'local')
 
+// Port mapping for different environments
+const envPorts = {
+  local: 3002,
+  full: 3022,
+  loadbalanced: 3012
+}
+
 const API_URL = computed(() => {
-  const port = environment.value === 'docker' ? 3012 : 3002
+  const port = envPorts[environment.value] || 3002
   return `http://localhost:${port}`
 })
 
@@ -298,6 +331,8 @@ const workerHeaders = [
   { title: 'Worker ID', key: 'workerId', sortable: true },
   { title: 'Type', key: 'workerType', sortable: true },
   { title: 'Active Jobs', key: 'worker_active_jobs', sortable: true },
+  { title: 'DB Pool', key: 'worker_db_pool_usage_percent', sortable: true },
+  { title: 'Pool Waiting', key: 'worker_db_pool_waiting', sortable: true },
   { title: 'CPU Usage', key: 'worker_cpu_usage', sortable: true },
   { title: 'Memory', key: 'worker_memory_usage', sortable: true },
   { title: 'Processed', key: 'worker_processed_jobs_total', sortable: true },

@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { DataSource } from 'typeorm';
 import Redis from 'ioredis';
 
 @Injectable()
@@ -26,6 +27,7 @@ export class WorkerStatsService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly configService: ConfigService,
+    private readonly dataSource: DataSource,
   ) {
     this.workerType = this.configService.get<string>('app.workerType', 'general');
     this.workerId = this.configService.get<string>('app.workerId');
@@ -76,7 +78,35 @@ export class WorkerStatsService implements OnModuleInit, OnModuleDestroy {
     this.lastCpuTime = currentTime;
   }
 
+  private getPoolMetrics() {
+    try {
+      const pool = (this.dataSource.driver as any).master;
+      return {
+        total: pool.totalCount || 0,
+        idle: pool.idleCount || 0,
+        waiting: pool.waitingCount || 0,
+        max: pool.options?.max || 0,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get pool metrics: ${error.message}`);
+      return { total: 0, idle: 0, waiting: 0, max: 0 };
+    }
+  }
+
   getStats() {
+    const poolMetrics = this.getPoolMetrics();
+    const poolUsage = poolMetrics.max > 0
+      ? Math.round((poolMetrics.total / poolMetrics.max) * 100)
+      : 0;
+
+    // Log warning if pool usage is high
+    if (poolUsage > 80) {
+      this.logger.warn(
+        `High connection pool usage: ${poolUsage}% ` +
+        `(${poolMetrics.total}/${poolMetrics.max}, waiting: ${poolMetrics.waiting})`
+      );
+    }
+
     return {
       worker_active_jobs: this.activeJobsCount,
       worker_cpu_usage: Math.round(this.cpuUsagePercent * 100) / 100,
@@ -84,6 +114,11 @@ export class WorkerStatsService implements OnModuleInit, OnModuleDestroy {
       worker_uptime_seconds: Math.floor((Date.now() - this.startTime) / 1000),
       worker_processed_jobs_total: this.processedJobsCount,
       worker_failed_jobs_total: this.failedJobsCount,
+      worker_db_pool_total: poolMetrics.total,
+      worker_db_pool_idle: poolMetrics.idle,
+      worker_db_pool_waiting: poolMetrics.waiting,
+      worker_db_pool_max: poolMetrics.max,
+      worker_db_pool_usage_percent: poolUsage,
     };
   }
 

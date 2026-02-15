@@ -1,6 +1,35 @@
 #!/bin/bash
 
 # Main test runner - runs all integration tests
+#
+# Usage:
+#   ./tests/run-all-tests.sh [--env <environment>]
+#
+# Options:
+#   --env <type>  Deployment environment (default: local)
+#                 - local: Local dev (API: 3000, Monitor: 3002)
+#                 - full: Full stack Docker (API: 3020, Monitor: 3022)
+#                 - loadbalanced: Load-balanced Docker (API: 3010, Monitor: 3012)
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --env)
+      export DEPLOYMENT_ENV="$2"
+      shift 2
+      ;;
+    --env=*)
+      export DEPLOYMENT_ENV="${1#*=}"
+      shift
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+# Default to local environment
+export DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-local}"
 
 source "$(dirname "$0")/test-utils.sh"
 
@@ -11,6 +40,10 @@ TESTS_FAILED=0
 
 echo -e "${BLUE}================================${NC}"
 echo -e "${BLUE}Job Service Integration Tests${NC}"
+echo -e "${BLUE}================================${NC}"
+echo -e "${BLUE}Environment: $DEPLOYMENT_ENV${NC}"
+echo -e "${BLUE}API URL: $API_URL${NC}"
+echo -e "${BLUE}Monitor URL: $MONITOR_URL${NC}"
 echo -e "${BLUE}================================${NC}"
 echo ""
 
@@ -31,12 +64,30 @@ check_prerequisites() {
         exit 1
     fi
 
-    # Check if containers are running
-    if ! docker ps | grep -q "jobs-postgres"; then
-        warn "PostgreSQL container not running. Starting docker-compose..."
-        docker-compose up -d
-        sleep 5
-    fi
+    # Check if containers are running (environment-specific)
+    case "$DEPLOYMENT_ENV" in
+      loadbalanced)
+        if ! docker ps | grep -q "jobs-postgres-lb"; then
+          warn "Load-balanced environment containers not running. Starting..."
+          docker-compose -f docker-compose.loadbalanced.yml up -d
+          sleep 5
+        fi
+        ;;
+      full)
+        if ! docker ps | grep -q "jobs-postgres"; then
+          warn "Full stack environment containers not running. Starting..."
+          docker-compose -f docker-compose.full.yml up -d
+          sleep 5
+        fi
+        ;;
+      local)
+        if ! docker ps | grep -q "dev-support-postgres"; then
+          warn "Dev support containers not running. Starting..."
+          docker-compose -f docker-compose.dev-support.yml up -d
+          sleep 5
+        fi
+        ;;
+    esac
 
     pass "Prerequisites check"
 }
@@ -60,12 +111,24 @@ echo -e "${BLUE}=== Test Setup ===${NC}"
 check_prerequisites
 
 # Ensure API is running
-info "Checking if API is running..."
+info "Checking if API is running on $API_URL..."
 if ! curl -s "$API_URL/health" > /dev/null 2>&1; then
-    warn "API not running. Please start services:"
-    echo "  Terminal 1: cd codebase && npm run start:dev:api"
-    echo "  Terminal 2: cd codebase && npm run start:dev:worker"
-    echo "  Terminal 3: cd codebase && npm run start:dev:monitor"
+    case "$DEPLOYMENT_ENV" in
+      loadbalanced)
+        warn "API not running. Please ensure load-balanced environment is running:"
+        echo "  docker-compose -f docker-compose.loadbalanced.yml up -d"
+        ;;
+      full)
+        warn "API not running. Please ensure full stack environment is running:"
+        echo "  docker-compose -f docker-compose.full.yml up -d"
+        ;;
+      local)
+        warn "API not running. Please start local services:"
+        echo "  Terminal 1: cd codebase && npm run start:dev:api"
+        echo "  Terminal 2: cd codebase && npm run start:dev:worker"
+        echo "  Terminal 3: cd codebase && npm run start:dev:monitor"
+        ;;
+    esac
     exit 1
 fi
 

@@ -1,0 +1,3 @@
+- review failure recovery mechanisms
+- better test failure recovery at stress test
+- introduce job type/queue specific configs
