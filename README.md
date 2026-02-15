@@ -260,5 +260,12 @@ Key environment variables (see `codebase/.env.example`):
 - **[docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md)** - Detailed development setup, deployment scenarios (Support/Full/Load-Balanced), performance comparison, and troubleshooting
 - **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** - AWS production deployment strategy (EKS/ECS, RDS, ElastiCache, CI/CD, monitoring, blue/green deployments)
 
+### Testing
+- **[docs/TESTING_INSTRUCTIONS.md](docs/TESTING_INSTRUCTIONS.md)** - Comprehensive testing guide with functional tests, load tests, and validation procedures
+- **[docs/LOAD_TESTING.md](docs/LOAD_TESTING.md)** - Load testing methodology, performance benchmarks, and optimization strategies
+
+### Development Notes
+- **[docs/DEV_DEBRIEFING.md](docs/DEV_DEBRIEFING.md)** - Development journey, challenges faced, and lessons learned
+
 ### Planning
 - **[docs/TODO.md](docs/TODO.md)** - Prioritized roadmap for future enhancements (observability, security, advanced features, performance optimizations)
