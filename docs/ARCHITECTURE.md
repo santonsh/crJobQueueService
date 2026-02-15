@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Our architecture to support 1K-3K QPS will include:
+Our architecture to support 1K-2K QPS will include:
 - Single NestJS API server that will serve as ingestion layer
 - Scalable NestJS workers
 - BullMQ as a queue framework (based on Redis)
@@ -769,26 +769,3 @@ Raw SQL insertion (~0.6ms per job):
 - When type safety is more important than performance
 
 **Note:** Only job *creation* uses raw SQL when enabled. All other operations (claim, complete, cancel, etc.) continue using TypeORM for maintainability.
-
-## Future Enhancements
-
-### Mid-Execution Job Cancellation
-Requires PostgreSQL polling or more efficient cancel queue subscription on worker.
-
-### Job Execution Heartbeat
-For long-running jobs to detect abandoned ones not purely on static threshold.
-
-### Job Progress Tracking
-If such data is available and we allow writing to DB mid-execution (like with heartbeat), we could update the progress for better visibility.
-
-### Add Statistics Function
-A cron job to analyze periodical job stats (can and better be implemented via external tools though).
-
-### Bulk Job Submission
-Submit multiple jobs in a single API call for efficiency.
-
-### Webhooks/Queue for Job Completion
-For job finish notification to external systems.
-
-### Webhooks/Queue for Errors
-For job failure notification to external systems.

@@ -238,3 +238,115 @@ If Docker is not running, start Docker Desktop and wait for it to be ready, then
 docker-compose up -d
 cd codebase && npm run start:dev
 ```
+
+---
+
+## 🚢 Deployment Scenarios
+
+### Available Deployment Modes
+
+The system supports three deployment scenarios for testing and development:
+
+| Scenario | Use Case | API Port | Monitor Port | Postgres Port | Redis Port |
+|----------|----------|----------|--------------|---------------|------------|
+| **Support** | Local development | 3000 (local) | 3002 (local) | 5433 | 6380 |
+| **Full** | Single API Docker | 3010 | 3012 | 5433 | 6380 |
+| **Load-Balanced** | High-throughput testing | 3010 (nginx) | 3012 | 5433 | 6380 |
+
+### 1. Support Services Only (Local Development)
+
+**When to use:** Local development, debugging, rapid iteration
+
+```bash
+# Start PostgreSQL + Redis
+docker-compose -f docker-compose.support.yml up -d
+
+# Run services locally
+npm run build:api && npm run start:api     # Terminal 1
+npm run build:worker && npm run start:worker  # Terminal 2
+npm run build:monitor && npm run start:monitor # Terminal 3
+
+# MonitorUI: http://localhost:8081 → Select "Support + Local (3002)"
+
+# Stop
+docker-compose -f docker-compose.support.yml down
+```
+
+### 2. Full Stack (Single API Docker)
+
+**When to use:** Testing complete Docker deployment, single API performance testing
+
+```bash
+# Start all services in Docker
+docker-compose -f docker-compose.full.yml up --build -d
+
+# Check status
+docker ps --filter "name=full"
+
+# MonitorUI: http://localhost:8081 → Select "Full Stack (3012)"
+
+# View logs
+docker-compose -f docker-compose.full.yml logs -f api
+
+# Stop
+docker-compose -f docker-compose.full.yml down
+```
+
+### 3. Load-Balanced (2× API + 5× Worker)
+
+**When to use:** High-throughput testing, horizontal scaling validation, production simulation
+
+```bash
+# Start load-balanced environment
+docker-compose -f docker-compose.loadbalanced.yml up --build -d
+
+# Check status (should show nginx, 2 APIs, 5 workers, postgres, redis, monitor)
+docker ps --filter "name=loadbalanced"
+
+# MonitorUI: http://localhost:8081 → Select "Load-Balanced (3012)"
+
+# View logs
+docker-compose -f docker-compose.loadbalanced.yml logs -f api-1 api-2
+
+# Stop
+docker-compose -f docker-compose.loadbalanced.yml down
+```
+
+### Performance Comparison
+
+Based on load testing results:
+
+| Configuration | QPS | vs 1K Target | Notes |
+|---------------|-----|--------------|-------|
+| Support (local) + Raw SQL | ~1,400 QPS | 140% ✅ | Best for development |
+| Full (1 API) + TypeORM | ~1,000 QPS | 100% ✅ | Baseline |
+| Full (1 API) + Raw SQL | ~1,200 QPS | 120% ✅ | +20% improvement |
+| Load-balanced + TypeORM | 1,281 QPS | 128% ✅ | 2 APIs |
+| Load-balanced + Raw SQL | **1,704 QPS** | **170%** ✅ | **Best throughput** |
+
+### Common Operations
+
+**Database Management:**
+```bash
+# Connect to PostgreSQL
+docker exec -it loadbalanced-postgres-1 psql -U jobsuser -d jobsdb
+
+# Check job count
+docker exec -it loadbalanced-postgres-1 psql -U jobsuser -d jobsdb -c "SELECT status, COUNT(*) FROM jobs GROUP BY status;"
+
+# Clear jobs table
+docker exec -it loadbalanced-postgres-1 psql -U jobsuser -d jobsdb -c "TRUNCATE TABLE jobs;"
+```
+
+**Switching Scenarios:**
+```bash
+# Stop all
+docker-compose -f docker-compose.support.yml down
+docker-compose -f docker-compose.full.yml down
+docker-compose -f docker-compose.loadbalanced.yml down
+
+# Start desired scenario
+docker-compose -f docker-compose.<scenario>.yml up -d
+```
+
+For detailed deployment scenarios and troubleshooting, see the root [DEPLOYMENT.md](../DEPLOYMENT.md) file.
